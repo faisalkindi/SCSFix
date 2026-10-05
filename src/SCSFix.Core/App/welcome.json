@@ -3,7 +3,7 @@
   "paragraphs": [
     "SCSFix is free and open source. Everything it does on your PC is free, with no account needed.",
     "SCSFix is a fork of SCSKiller. The community shader hash database and the Patreon sign-in are SCSKiller's service, paid for by its author's Patreon supporters: sign in only if you support SCSKiller.",
-    "SCSFix sends nothing on its own: no usage ping, and it doesn't update itself. Download a new release to update."
+    "SCSFix sends no usage ping and doesn't update itself: download a new release to update. It does download SCSKiller's published content (the known-stutter list, confirmed engines, shared upscaler packs); like any download, that shows your IP address to SCSKiller's server."
   ],
   "link": { "text": "About supporting SCSKiller", "url": "https://scskiller.com/support" },
   "share": "Help improve the community shader hash database (shared anonymously with SCSKiller)",
