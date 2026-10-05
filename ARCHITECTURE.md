@@ -94,6 +94,8 @@ Everything lives under `%LOCALAPPDATA%\SCSFix\`, or under `data\` beside `SCSFix
 proxy in a game's folder reads it from there.
 
 - `settings.json`.
+- `window.json`: where the main window was last closed (restored bounds and whether it was maximized; `MainWindow.RestorePlacement`
+  and `SavePlacement`, saved as it closes to the tray, quits or restarts to update).
 - `crash.log`: what the app wrote when it couldn't start or an exception reached the top (`CrashLog`: the exception, the Windows and
   runtime versions, and the CPU facts a start can depend on: AVX2, BMI2, SSE4.2, whether UAC is on). A start that fails also says so
   in a message box. An updater hook step that throws is logged there and the others still run.
