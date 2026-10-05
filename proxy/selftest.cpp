@@ -3467,6 +3467,113 @@ static int d3d11rec_parent(const std::wstring& self, const std::wstring& dir) {
     return 0;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// `selftest framegen`: a frame generation layer's swap chain (an object of a class in another module, its Present calling the chain
+// under it) isn't patched: the hook would call dxgi's Present on an object that isn't one (a black screen and a crash with frame
+// generation on). The layer wraps the factory's CreateSwapChainForHwnd before the proxy hooks it, so the proxy gets the layer's
+// object back and must leave its vtable alone (the log says so); the game's presents then reach the chain under it once each.
+struct FgLayer { void** vt; IDXGISwapChain1* real; };
+static std::atomic<int> g_fg_presents;
+static void* g_fg_vt[40];
+static FgLayer g_fg;
+static HRESULT STDMETHODCALLTYPE fg_qi(FgLayer* o, REFIID riid, void** pp) {
+    if (riid == __uuidof(IUnknown) || riid == __uuidof(IDXGISwapChain) || riid == __uuidof(IDXGISwapChain1)) return *pp = o, S_OK;
+    return *pp = nullptr, E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE fg_ref(FgLayer*) { return 1; }
+static HRESULT STDMETHODCALLTYPE fg_present(FgLayer* o, UINT sync, UINT flags) { ++g_fg_presents; return o->real->Present(sync, flags); }
+static HRESULT STDMETHODCALLTYPE fg_present1(FgLayer* o, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* p) { ++g_fg_presents; return o->real->Present1(sync, flags, p); }
+static HRESULT STDMETHODCALLTYPE fg_stub(FgLayer*) { return E_NOTIMPL; }
+using PFN_CreateSwapChainForHwnd = HRESULT(STDMETHODCALLTYPE*)(IDXGIFactory2*, IUnknown*, HWND, const DXGI_SWAP_CHAIN_DESC1*, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC*, IDXGIOutput*, IDXGISwapChain1**);
+static PFN_CreateSwapChainForHwnd g_fg_orig_create;
+static HRESULT STDMETHODCALLTYPE fg_create(IDXGIFactory2* f, IUnknown* dev, HWND w, const DXGI_SWAP_CHAIN_DESC1* d, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC* fd, IDXGIOutput* out, IDXGISwapChain1** pp) {
+    IDXGISwapChain1* real = nullptr;
+    HRESULT hr = g_fg_orig_create(f, dev, w, d, fd, out, &real);
+    if (FAILED(hr)) return hr;
+    g_fg.real = real;
+    *pp = reinterpret_cast<IDXGISwapChain1*>(&g_fg);   // the layer's object: not dxgi's class
+    return S_OK;
+}
+
+static int framegen_rows(const std::wstring& dir) {
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
+    HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
+    CHECK(m);
+    auto proxy_create = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
+    IDXGIFactory4* f = nullptr;
+    IDXGIAdapter* warp = nullptr;
+    CHECK(proxy_create && SUCCEEDED(CreateDXGIFactory2(0, IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
+    for (auto& s : g_fg_vt) s = (void*)fg_stub;
+    g_fg_vt[0] = (void*)fg_qi, g_fg_vt[1] = g_fg_vt[2] = (void*)fg_ref, g_fg_vt[8] = (void*)fg_present, g_fg_vt[22] = (void*)fg_present1;
+    g_fg.vt = g_fg_vt;
+    void** fvt = *(void***)f;   // the layer goes in first: slot 15 of the factory's vtable is CreateSwapChainForHwnd
+    DWORD old;
+    CHECK(VirtualProtect(&fvt[15], sizeof(void*), PAGE_READWRITE, &old));
+    g_fg_orig_create = (PFN_CreateSwapChainForHwnd)fvt[15];
+    fvt[15] = (void*)fg_create;
+    VirtualProtect(&fvt[15], sizeof(void*), old, &old);
+    ID3D12Device* dev = nullptr;
+    CHECK(SUCCEEDED(proxy_create(warp, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev))));   // admitted: the proxy hooks the factory over the layer's hook
+    HWND wnd = CreateWindowExW(0, L"STATIC", L"scsfix framegen", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, nullptr, nullptr, nullptr, nullptr);
+    D3D12_COMMAND_QUEUE_DESC qd = {};
+    ID3D12CommandQueue* q = nullptr;
+    DXGI_SWAP_CHAIN_DESC1 d = {64, 64, DXGI_FORMAT_R8G8B8A8_UNORM, FALSE, {1, 0}, DXGI_USAGE_RENDER_TARGET_OUTPUT, 2};
+    d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    IDXGISwapChain1* sc = nullptr;
+    CHECK(wnd && SUCCEEDED(dev->CreateCommandQueue(&qd, IID_PPV_ARGS(&q))) && SUCCEEDED(f->CreateSwapChainForHwnd(q, wnd, &d, nullptr, nullptr, &sc)));
+    CHECK((void*)sc == (void*)&g_fg);   // the game got the layer's object
+    DXGI_PRESENT_PARAMETERS p = {};
+    for (int i = 0; i < 6; ++i) sc->Present(0, 0), sc->Present1(0, 0, &p);
+    CHECK(g_fg_presents == 12);
+    CHECK(g_fg.vt == g_fg_vt && g_fg_vt[8] == (void*)fg_present && g_fg_vt[22] == (void*)fg_present1);   // its vtable is as the layer made it
+    Sleep(1500);
+    FILE* lf = _wfopen((dir + L"scsfix.log").c_str(), L"rb");
+    std::string log;
+    for (char b[4096]; lf && fgets(b, sizeof b, lf);) log += b;
+    if (lf) fclose(lf);
+    CHECK(log.find("not dxgi.dll: not hooked") != std::string::npos);
+    printf("PASS framegen: 12 presents reached the layer and the chain under it; its vtable was left alone\n");
+    return 0;
+}
+
+// `selftest dirrewrite`: the proxy reports its module path as another folder than the one it is mapped from (REFramework shows a
+// game-folder DLL under its _storage_ folder): the app's files are beside the exe, so with a file of the proxy's name in the exe's
+// folder that folder is the one. The "game" loads the proxy from a subfolder while the exe's folder holds a copy of it too.
+static int dirrewrite_child(const std::wstring& dir, const wchar_t* proxy) {
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
+    HMODULE m = LoadLibraryW(proxy);
+    CHECK(m);
+    auto create = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
+    IDXGIFactory4* f = nullptr;
+    IDXGIAdapter* warp = nullptr;
+    CHECK(create && SUCCEEDED(CreateDXGIFactory2(0, IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
+    ID3D12Device* dev = nullptr;
+    CHECK(SUCCEEDED(create(warp, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev))));
+    return 0;
+}
+static int dirrewrite_parent(const std::wstring& self, const std::wstring& dir) {
+    namespace fs = std::filesystem;
+    const std::wstring t = dir + L"dirrewrite\\";
+    std::error_code ec;
+    fs::remove_all(t, ec);
+    fs::create_directories(t + L"sub");
+    fs::copy_file(self, t + L"game.exe");
+    fs::copy_file(dir + L"d3d12.dll", t + L"d3d12.dll");
+    fs::copy_file(dir + L"d3d12.dll", t + L"sub\\d3d12.dll");
+    CHECK(run_wait(L"\"" + t + L"game.exe\" dirrewritechild \"" + t + L"sub\\d3d12.dll\"", t) == 0);
+    std::string log;
+    {
+        FILE* lf = _wfopen((t + L"scsfix.log").c_str(), L"rb");
+        CHECK(lf);   // written beside the exe: it was admitted there (its armed file is there)
+        for (char b[4096]; fgets(b, sizeof b, lf);) log += b;
+        fclose(lf);
+    }
+    CHECK(log.find("using the exe's") != std::string::npos && log.find("hook: device") != std::string::npos);
+    CHECK(!fs::exists(t + L"sub\\scsfix.log") && !fs::exists(t + L"sub\\scsfix.db") && !fs::exists(t + L"sub\\scsfix_creates.csv"));   // nothing in the folder it was reported under
+    printf("PASS dirrewrite: the recorder worked from the exe's folder\n");
+    return 0;
+}
+
 // The app's attestation for this exe, as ScsFix.WriteAttestation writes it: scsfix.armed here (its nonce kept when it
 // has one, so copies of this exe running from the same folder share it) and the ledger entry
 // %LOCALAPPDATA%\SCSFix\armed\<SHA-1 of the exe's path, UTF-16LE, A-Z lowered>, removed when this process exits.
@@ -3512,6 +3619,9 @@ int wmain(int argc, wchar_t** argv) {
     if (!GetEnvironmentVariableW(L"SCSFIX_SELFTEST_UNARMED", nullptr, 0)) arm_self(dir, a);
     if (argc > 1 && !wcscmp(argv[1], L"d3d11rec")) return d3d11rec_parent(a, dir);
     if (argc > 1 && !wcscmp(argv[1], L"d3d11recchild")) return d3d11rec_child(dir);
+    if (argc > 1 && !wcscmp(argv[1], L"framegen")) return framegen_rows(dir);
+    if (argc > 1 && !wcscmp(argv[1], L"dirrewrite")) return dirrewrite_parent(a, dir);
+    if (argc > 2 && !wcscmp(argv[1], L"dirrewritechild")) return dirrewrite_child(dir, argv[2]);
     if (argc > 1 && !wcscmp(argv[1], L"layoutrules")) return layout_rules();
     if (argc > 2 && !wcscmp(argv[1], L"so")) return so_rows(dir, (unsigned)_wtoi(argv[2]));
     if (argc > 2 && !wcscmp(argv[1], L"frames")) return frames_rows(dir, _wtoi(argv[2]));

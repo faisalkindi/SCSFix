@@ -2367,13 +2367,29 @@ static PFN_CreateScComp o_createsc_comp;
 struct ScVt { std::atomic<void**> vt; std::atomic<void*> present, present1; };
 static ScVt g_scvt[4];
 static std::atomic<int> g_nscvt;
+// The module a vtable lives in (a COM object's class is implemented there): its base name, "" when no module holds it.
+static std::wstring module_of(const void* addr) {
+    HMODULE m = nullptr;
+    wchar_t path[MAX_PATH] = L"";
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)addr, &m) || !m || !GetModuleFileNameW(m, path, MAX_PATH)) return L"";
+    const wchar_t* slash = wcsrchr(path, 0x5C);   // a backslash
+    return slash ? slash + 1 : path;
+}
+// Only a swap chain class of dxgi.dll (the system's, or ReShade's and the like installed under that name) is hooked: a frame
+// generation or interposer layer (FSR 3's, Streamline's, a driver's) returns an object of its own class, whose Present the
+// layer calls on the chain under it, which is hooked. Patching the layer's own vtable made the hook call dxgi's Present on an
+// object that isn't one (the game's black screen and crash with frame generation on).
+static bool dxgi_class(const void* vt) { return !_wcsicmp(module_of(vt).c_str(), L"dxgi.dll"); }
 static void* sc_orig(void* sc, std::atomic<void*> ScVt::*slot) {
     void** vt = *(void***)sc;
     int n = g_nscvt.load(std::memory_order_acquire);
     for (int i = 0; i < n; ++i)
         if (g_scvt[i].vt == vt) return g_scvt[i].*slot;
-    for (int i = 0; i < n; ++i)  // an overlay that copied a hooked vtable into the object: the first original of the slot
-        if (void* p = g_scvt[i].*slot) return p;
+    // an overlay that copied a hooked vtable into the object: the first original of the slot, but only for an object of dxgi's own
+    // class; another class's Present is never what an original of another class's can stand for
+    if (dxgi_class(vt))
+        for (int i = 0; i < n; ++i)
+            if (void* p = g_scvt[i].*slot) return p;
     return nullptr;
 }
 
@@ -2413,15 +2429,27 @@ template <class F> static HRESULT timed_present(void* sc, UINT flags, F&& call) 
 }
 static HRESULT STDMETHODCALLTYPE hk_present(IDXGISwapChain* sc, UINT sync, UINT flags) {
     auto o = (PFN_Present)sc_orig(sc, &ScVt::present);
+    if (!o) return DXGI_ERROR_INVALID_CALL;   // a vtable we hold no original for: never reached by a patch (sc_patch), only by a copy of one
     return timed_present(sc, flags, [&] { return o(sc, sync, flags); });
 }
 static HRESULT STDMETHODCALLTYPE hk_present1(IDXGISwapChain1* sc, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* p) {
     auto o = (PFN_Present1)sc_orig(sc, &ScVt::present1);
+    if (!o) return DXGI_ERROR_INVALID_CALL;
     return timed_present(sc, flags, [&] { return o(sc, sync, flags, p); });
 }
 
 static void sc_patch(void** vt, int slot, void* hook, std::atomic<void*> ScVt::*orig) {
     if (vt[slot] == hook) return;
+    if (!dxgi_class(vt)) {   // a layer's own swap chain: left alone (frame times come from the chain under it)
+        static std::mutex once_mx;
+        static std::vector<void**> told;
+        std::lock_guard l(once_mx);
+        if (std::find(told.begin(), told.end(), vt) == told.end()) {
+            told.push_back(vt);
+            logf("frames: swap chain vtable %p is in %ls, not dxgi.dll: not hooked", (void*)vt, module_of(vt).c_str());
+        }
+        return;
+    }
     int n = g_nscvt, i = 0;
     while (i < n && g_scvt[i].vt != vt) ++i;
     // an overlay hooked the slot after us and calls our hook: taking it as the original would make Present call itself
@@ -2995,6 +3023,22 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID reserved) {
     g_dir = p;
     g_dir.resize(g_dir.find_last_of(L"\\/") + 1);
     g_is11 = !_wcsicmp(wcsrchr(p, L'\\') ? wcsrchr(p, L'\\') + 1 : p, L"d3d11.dll");   // the file name this binary was installed under
+    // Some loaders (REFramework) report a game-folder DLL under another path, their own storage folder, though it is mapped from the
+    // game's: the app's files (scsfix.ini, scsfix.armed) are beside the exe, where the recorder is installed, so this folder is the
+    // one when the exe's folder holds a file of this name too.
+    wchar_t dir_note[2 * MAX_PATH + 200] = L"";   // logged once the log can take it (below)
+    {
+        wchar_t e[MAX_PATH];
+        if (GetModuleFileNameW(nullptr, e, MAX_PATH) && wcsrchr(e, L'\\')) {
+            std::wstring exe_dir = e;
+            exe_dir.resize(exe_dir.find_last_of(L"\\/") + 1);
+            const wchar_t* me = wcsrchr(p, L'\\') ? wcsrchr(p, L'\\') + 1 : p;
+            if (_wcsicmp(exe_dir.c_str(), g_dir.c_str()) && GetFileAttributesW((exe_dir + me).c_str()) != INVALID_FILE_ATTRIBUTES) {
+                swprintf_s(dir_note, L"dir: loaded as %ls, which isn't the exe's folder; using the exe's, %ls, which holds a %ls too", p, exe_dir.c_str(), me);
+                g_dir = exe_dir;
+            }
+        }
+    }
     GetSystemDirectoryW(p, MAX_PATH);
     wchar_t next[64] = L"";
     HMODULE mod = nullptr;
@@ -3039,6 +3083,7 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID reserved) {
     else g_log_deferred = true;  // opened by admitted(), at the first device
     GetModuleFileNameW(nullptr, p, MAX_PATH);
     logf("loaded into %ls", p);
+    if (*dir_note) logf("%ls", dir_note);
     if (warm_asked && !g_warm) logf("mode warm ignored: this process isn't scsfix_warm, it records");
     g_next = mod;
     if (mod) logf("next: %ls (the device and every export it has come from it)", next);

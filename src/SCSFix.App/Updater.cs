@@ -310,20 +310,30 @@ public static class Updater
     /// <summary>Velopack's lifecycle hooks (Program.Main, before anything else): run by Update.exe, fast, then exit.</summary>
     public static void RunHooks() => VelopackApp.Build()
         .SetAutoApplyOnStartup(false)   // its apply force-stops every process under the install root: only ApplyOnExitAsync/RestartAsync apply
-        .OnAfterInstallFastCallback(_ =>
+        .OnAfterInstallFastCallback(_ => Safe("after install", () =>
         {
             // a zip install's driver-update task points at the zip's folder: move it here (current\ keeps its name across updates)
             if (ScheduledTask.Registered && ScheduledTask.TaskExe() is { } exe) ScheduledTask.Register(exe);
-        })
-        .OnAfterUpdateFastCallback(_ => Busy.ClearApplying(DataDir))   // the swap is done: the CLI may run again
-        .OnBeforeUninstallFastCallback(_ =>
+        }))
+        .OnAfterUpdateFastCallback(_ => Safe("after update", () => Busy.ClearApplying(DataDir)))   // the swap is done: the CLI may run again
+        .OnBeforeUninstallFastCallback(_ => Safe("before uninstall", () =>
         {
             // installer.md §5. Kept: the data dir (recordings, settings).
             ScheduledTask.Unregister();
             if (Environment.ProcessPath is { } app) WindowsStartup.Apply(false, app);
             ScsFix.RemoveAllRecorders(new AppStore(DataDir));
-        })
+        }))
         .Run();
+
+    /// <summary>A hook step that fails is logged (crash.log) and goes on: the installer counts a hook that throws as a step that failed
+    /// and ends with "Install partially succeeded", although the app is in (the driver-update task and the start with Windows
+    /// are the steps that can fail, on a Windows without the Task Scheduler's interfaces, say), and those steps repeat at the
+    /// app's next start.</summary>
+    static void Safe(string hook, Action step)
+    {
+        try { step(); }
+        catch (Exception e) { CrashLog.Write($"the {hook} hook's step failed (the installation goes on)", e); }
+    }
 
     /// <summary>The signed feed (§4.3): releases.&lt;channel&gt;.json is used only after <see cref="FeedTrust"/> accepts its
     /// .sig; each package is fetched from its own version's channel (<see cref="UpdateFeeds.Package"/>), and Velopack then

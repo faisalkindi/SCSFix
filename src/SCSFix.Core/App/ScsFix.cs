@@ -410,7 +410,8 @@ public sealed partial class ScsFix : IScsFix
         {
             ct.ThrowIfCancellationRequested();
             tickets.Add(Ticket());
-            states.Add(Evaluate(g, force, out var fresh, out var stale));
+            var (state, fresh, stale) = EvaluateWithin(g, force);
+            states.Add(state);
             driverStale.Add(stale);
             detected |= fresh;
         }
@@ -448,6 +449,22 @@ public sealed partial class ScsFix : IScsFix
         if (ActiveCheck is { } active) ActiveCheckSent = Task.Run(() => active.SendAsync());
         return states;
     }, ct);
+
+    /// <summary>How long a scan waits for one game's evaluation (its engine, its anti-cheat check, its plan). One game whose files are
+    /// on a drive that doesn't answer, or whose tree has no end, kept the whole scan, and every game after it, waiting for good ("the
+    /// app scans for games forever"). Replaceable for tests.</summary>
+    public TimeSpan EvaluateBudget { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary><see cref="Evaluate"/> within <see cref="EvaluateBudget"/>; a game that takes longer is Unsupported with the reason, and the
+    /// scan goes on without it (its evaluation, stuck in a call that doesn't return, is left to end by itself).</summary>
+    (GameState State, bool Fresh, bool Stale) EvaluateWithin(Game g, bool force)
+    {
+        var work = Task.Run(() => { var s = Evaluate(g, force, out var fresh, out var stale); return (s, fresh, stale); });
+        if (work.Wait(EvaluateBudget)) return work.GetAwaiter().GetResult();
+        var why = $"reading its files took more than {EvaluateBudget.TotalMinutes:0.#} minutes (is its drive reachable?): the scan went on without it";
+        Log?.Report($"{g.Name}: {why}");
+        return (new GameState(g, null, AntiCheat.None, GameStatus.Unsupported, why, null, null, null, null, null, null, null, false, null), false, false);
+    }
 
     string StutterFile => Path.Combine(Store.DataDir, "known-stutter.json");
     string ConfirmedFile => Path.Combine(Store.DataDir, "confirmed-engines.json");
@@ -617,7 +634,7 @@ public sealed partial class ScsFix : IScsFix
         var db = Length(Path.Combine(exeDir, "scsfix.db"));
         return s with { RecorderOverride = o, RecorderSkip = skip, RecorderEffective = RecorderEffective(o, Settings.RecordAllGames, skip),
             RecorderNote = _recorderNotes.GetValueOrDefault(s.Game.Id), RecorderMod = ModName(exeDir, rec, ours),
-            RecorderRefused = ours ? Refused(s.Game.ExePath) : null,
+            RecorderRefused = ours ? Refused(s.Game.ExePath) ?? NotLoaded(rec, exeDir) : null,
             RecordAlongsideMod = rec.RecordAlongsideMod,
             RecordingBytes = RecordingFiles(s.Game).Where(f => Path.GetFileName(f) != FrameLog.FileName).Sum(Length),
             RecordingPaused = ours && DbCap(s.Game) is { } cap && db >= cap,
@@ -820,12 +837,27 @@ public sealed partial class ScsFix : IScsFix
     /// <summary>A warming item that stopped moving: its note says for how long, and it has no time estimate.</summary>
     public static bool Stalled(QueueItem q) => q.Stage == QueueStage.Warming && q.Note?.StartsWith("no progress") == true;
 
+    /// <summary>Above this a single game's compile is warned about: Borderlands 4 planned 796,000 pipelines and wrote 64 GB of cache
+    /// in an hour, and its players found the game still compiling on load (upstream issues 25 and 52).</summary>
+    public const long LargeCompileBytes = 16L << 30;
+
+    /// <summary>A warning when a queued game would add more than <see cref="LargeCompileBytes"/> to the shader cache, else null.
+    /// Not a refusal: some games are that big.</summary>
+    public static string? LargeCompileWarning(IReadOnlyList<(string Game, long Bytes)> queue, long threshold = LargeCompileBytes)
+    {
+        var big = queue.Where(q => q.Bytes > threshold).ToList();
+        if (big.Count == 0) return null;
+        return $"{string.Join(", ", big.Select(q => $"{q.Game} would add about {Format.Bytes(q.Bytes)}"))} to the driver's shader cache. That is a very large compile: it takes long, "
+            + "can push other games' shaders out, and what the game really uses is usually far fewer pipelines than the files hold. "
+            + "A recording of play (Record on the game's page) plans from what the game creates, and is usually much smaller.";
+    }
+
     /// <summary>What a warm's counts say beyond the compiled ones; null when all are 0. Failed = the driver rejected it;
     /// skipped = never replayed; crashed = never replayed because its create removed the device (crashed the GPU driver).</summary>
     public static string? WarmCounts(long failed, long skipped, long crashed = 0) =>
         string.Join(", ", new[]
         {
-            failed > 0 ? $"{failed} failed (the driver rejected them)" : null,
+            failed > 0 ? $"{failed} failed (the driver rejected them: if the game uses them it compiles them itself, nothing to do)" : null,
             skipped > 0 ? $"{skipped} skipped (a shader not in this install)" : null,
             crashed > 0 ? $"{crashed} skipped ({(crashed == 1 ? "it crashes" : "they crash")} the GPU driver)" : null,
         }.OfType<string>()) is { Length: > 0 } s ? s : null;
@@ -3729,7 +3761,7 @@ public sealed partial class ScsFix : IScsFix
             if (running.Contains(exe))
             {
                 yielded = true;
-                _pauseWhy = StoppedFor(name);
+                _pauseWhy = StoppedFor(name, exe);
                 SetCurrent(QueueStage.Paused, _pauseWhy);
                 run.Stop();   // graceful (resumes a suspended run first): the driver writes and releases the game's files
                 continue;
@@ -3746,7 +3778,22 @@ public sealed partial class ScsFix : IScsFix
         return (await run.Completion, yielded);
     }
 
-    static string StoppedFor(string name) => $"stopped while {name} is running: continues when it exits";
+    string StoppedFor(string name, string exe) => $"stopped while {name} is running: continues when it exits" + RunningDetail(exe);
+
+    /// <summary>". Running: Game.exe (process 1234)": which process holds the game's name, so a user who sees a game running that
+    /// isn't (a leftover, a launcher helper, a copy elsewhere) can end it in Task Manager. Nothing when none shows. A staged warm's
+    /// children are left out, as in <see cref="DiscoveredGamesRunning"/>.</summary>
+    string RunningDetail(string exe)
+    {
+        try
+        {
+            var all = Processes(true);
+            var warms = all.Where(p => p.Exe.Equals("scsfix_warm.exe", StringComparison.OrdinalIgnoreCase)).Select(p => p.Pid).ToHashSet();
+            var pids = all.Where(p => p.Exe.Equals(exe, StringComparison.OrdinalIgnoreCase) && !warms.Contains(p.Parent)).Select(p => p.Pid).Take(4).ToList();
+            return pids.Count == 0 ? "" : $". Running: {exe} (process {string.Join(", ", pids)})";
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or IOException) { return ""; }
+    }
 
     /// <summary>Waits while a process named like the warm's exe runs (see RunItem), shown as Paused with the reason;
     /// <paramref name="learn"/> attributes the cache files the game holds open meanwhile (every few seconds).</summary>
@@ -3755,7 +3802,7 @@ public sealed partial class ScsFix : IScsFix
         if (!Running().Contains(exe)) return;
         try
         {
-            _pauseWhy = StoppedFor(name);
+            _pauseWhy = StoppedFor(name, exe);
             SetCurrent(QueueStage.Paused, _pauseWhy);
             Stopwatch? sampled = null;
             while (Running().Contains(exe))
@@ -4269,6 +4316,21 @@ public sealed partial class ScsFix : IScsFix
 
     /// <summary>Why the proxy passed the exe's last launch through, from the file it leaves beside the exe's ledger entry
     /// ("&lt;unix ms&gt; &lt;reason&gt;"; an admitted launch deletes it); null = none.</summary>
+    /// <summary>The game ran since the recorder went in, and the recorder wrote nothing: not a log, not a csv, not a db. It was never
+    /// loaded (a refusal leaves its reason beside the exe's ledger entry, <see cref="Refused"/>, and is shown instead): the game
+    /// takes d3d12.dll from somewhere else than its own folder (a loader that maps its own copy, a launcher, Windows' only).</summary>
+    internal static string? NotLoaded(GameRecord rec, string exeDir)
+    {
+        if (rec.LastPlay is not { } play) return null;
+        DateTime installed = default;
+        foreach (var n in new[] { "d3d12.dll", Proxy11 })
+            try { if (File.Exists(Path.Combine(exeDir, n))) installed = installed > File.GetCreationTimeUtc(Path.Combine(exeDir, n)) ? installed : File.GetCreationTimeUtc(Path.Combine(exeDir, n)); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+        if (installed == default || play.From.UtcDateTime <= installed) return null;   // its last run began before the recorder was in
+        return new[] { "scsfix.log", "scsfix_creates.csv", "scsfix.db" }.Any(f => File.Exists(Path.Combine(exeDir, f))) ? null
+            : "the game didn't load the recorder, so nothing was recorded (it takes DirectX from somewhere other than its own folder, as a mod loader that maps its own copy of the DLLs, or a launcher, can make it)";
+    }
+
     internal static string? Refused(string exe)
     {
         string text;

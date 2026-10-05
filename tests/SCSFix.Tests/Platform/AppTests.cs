@@ -4629,20 +4629,20 @@ public partial class AppTests : IDisposable
         var done = k.Queue.Single();
         Assert.Equal(QueueStage.Done, done.Stage);
         Assert.Equal((10000L, 3L, 50L), (done.Progress!.Done, done.Progress.Failed, done.Progress.Skipped));   // skipped: not in Total, not failed
-        Assert.Equal("3 failed (the driver rejected them), 50 skipped (a shader not in this install)", done.Note);
+        Assert.Equal("3 failed (the driver rejected them: if the game uses them it compiles them itself, nothing to do), 50 skipped (a shader not in this install)", done.Note);
         lock (progress) Assert.All(progress, p => Assert.Equal(50, p.Skipped));   // the warm's own lines carry it too
         var s = k.Games.Single();
         Assert.Equal((3L, 50L), (s.LastWarmFailed, s.LastWarmSkipped));
         Assert.Equal((3L, 50L), (k.Store.LoadGame(_game.Id).LastWarmFailed, k.Store.LoadGame(_game.Id).LastWarmSkipped));
 
-        Assert.Equal(" 10000/10000 (3 failed, 50 skipped: not in this install) 1000/s - 3 failed (the driver rejected them), 50 skipped (a shader not in this install)",
+        Assert.Equal(" 10000/10000 (3 failed, 50 skipped: not in this install) 1000/s - 3 failed (the driver rejected them: if the game uses them it compiles them itself, nothing to do), 50 skipped (a shader not in this install)",
             ScsFix.ProgressText(done with { Progress = done.Progress with { PerSecond = 1000 } }));
         Assert.Equal(" 5/9 (0 failed) 2/s", ScsFix.ProgressText(new QueueItem("g", QueueStage.Warming, new WarmProgress(5, 9, 0, 2), null)));
         Assert.Equal("", ScsFix.ProgressText(new QueueItem("g", QueueStage.Waiting, null, null)));
         Assert.Null(ScsFix.WarmCounts(0, 0));
-        Assert.Equal("2 failed (the driver rejected them)", ScsFix.WarmCounts(2, 0));
+        Assert.Equal("2 failed (the driver rejected them: if the game uses them it compiles them itself, nothing to do)", ScsFix.WarmCounts(2, 0));
         Assert.Equal("7 skipped (a shader not in this install)", ScsFix.WarmCounts(0, 7));
-        Assert.Equal("2 failed (the driver rejected them), 3 skipped (they crash the GPU driver)", ScsFix.WarmCounts(2, 0, 3));
+        Assert.Equal("2 failed (the driver rejected them: if the game uses them it compiles them itself, nothing to do), 3 skipped (they crash the GPU driver)", ScsFix.WarmCounts(2, 0, 3));
     }
 
     [Fact]
@@ -7807,7 +7807,7 @@ public partial class AppTests : IDisposable
         warmer.Run!.Failed = 100;
         k.StopQueue();
         await k.WhenQueueIdle().WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal((QueueStage.Stopped, "100 failed (the driver rejected them)"), (k.Queue.Single().Stage, k.Queue.Single().Note));
+        Assert.Equal((QueueStage.Stopped, "100 failed (the driver rejected them: if the game uses them it compiles them itself, nothing to do)"), (k.Queue.Single().Stage, k.Queue.Single().Note));
 
         warmer.Run = null;
         k.StartQueue();   // continues where it stopped; this segment fails nothing
@@ -7815,7 +7815,7 @@ public partial class AppTests : IDisposable
         Assert.Equal(10, warmer.Options!.StartAt);
         warmer.Run!.Finish();
         await k.WhenQueueIdle().WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal((QueueStage.Done, "100 failed (the driver rejected them)"), (k.Queue.Single().Stage, k.Queue.Single().Note));
+        Assert.Equal((QueueStage.Done, "100 failed (the driver rejected them: if the game uses them it compiles them itself, nothing to do)"), (k.Queue.Single().Stage, k.Queue.Single().Note));
         Assert.Equal(100, k.Store.LoadGame(_game.Id).LastWarmFailed);
     }
 

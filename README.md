@@ -92,7 +92,9 @@ and run it. It installs for your user only and needs no admin rights. SCSFix doe
 release to update.
 
 Or take `SCSFix-<version>-Portable.zip`, unzip it to any folder you can write to and run `SCSFix.exe`. Before deleting a portable folder, turn recording off for your games, so the recorder leaves the
-game folders.
+game folders. A portable folder keeps its settings in `%LOCALAPPDATA%\SCSFix\` like the installed app; to keep them in the folder
+instead, put an empty file named `portable.txt` next to `SCSFix.exe` (they go in a `data` folder there; the recorder's small
+ledger stays in `%LOCALAPPDATA%\SCSFix\armed`).
 
 <!-- UNSIGNED NOTICE: delete this block once releases are signed. -->
 > [!IMPORTANT]
@@ -132,7 +134,8 @@ moment the game exits, SCSFix takes those files out again, keeps the recording a
 checks the folder is as it was, also when SCSFix itself was closed meanwhile; after a crash or power loss it does so
 at the next logon or start. If its files are still there when you start the game online, you could be banned.
 
-**What does it write, and where?** Its settings and per-game plans go in `%LOCALAPPDATA%\SCSFix\`, and the compiled
+**What does it write, and where?** Its settings and per-game plans go in `%LOCALAPPDATA%\SCSFix\` (`crash.log` there when the app
+can't start or hits an error: attach it to an issue), and the compiled
 pipelines go in your driver's own shader cache. Game files are never modified. The one exception is the optional
 recorder: it adds `d3d12.dll`, `scsfix.ini` and `scsfix.armed` to the folder of the game you turn it on for, and
 turning it off removes exactly those files. `scsfix.armed` says the game's install was checked for anti-cheat; SCSFix
@@ -144,6 +147,13 @@ removes these files, and the recording it wrote there, from every game folder.
 
 **Do I need an account?** No. Everything the app does on your PC is free. Signing in with Patreon only adds the
 supporter features.
+
+**A game says it is running and it isn't.** The note on the game names the processes that hold its exe name ("Running:
+Game.exe (process 1234)"). End that one in Task Manager (a leftover, a launcher's helper) and the compile continues.
+
+**Borderlands 4 (or another huge game) is very large to compile.** SCSFix warns in the queue when a compile would add more than
+16 GB to the driver's cache. Such a plan is built from every shader in the files; a recording of play plans from what the game
+really creates, which is usually far smaller.
 
 **My game isn't detected, or something broke.** Open an [issue](https://github.com/faisalkindi/SCSFix/issues/new/choose)
 with the bug or game request template.

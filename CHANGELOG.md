@@ -16,8 +16,25 @@ All notable changes to the SCSKiller app and command line. The format follows
   `shadercache__/`). 34,392 shader entries; the plan is 25,613 pipelines (plus 265 of FidelityFX's), of which the driver rejected 4
   on an RTX 4090. The passes whose root signature the files can't settle (70 of 239, 1,338 of about 35,000 shaders) and ray tracing
   still need a recording. Whether the game's own launch finds these in the driver's cache isn't known until it is played.
+- A crash log (`%LOCALAPPDATA%\SCSFix\crash.log`) with the Windows, runtime and CPU facts, and a message when the app can't start;
+  an updater hook that throws no longer stops the ones after it.
+- A portable folder keeps its data beside the exe when an empty `portable.txt` is there (upstream issue 50).
+- A warning in the queue before a compile that would add more than 16 GB to the driver's cache (upstream issues 25, 52).
 - A DirectX 11 recorder: the recorder installed as `d3d11.dll` records a DirectX 11 game's shaders and tessellation
   pairs, and the compile replays them. NVIDIA only, like the D3D11 warm. Installed only where the game can't be read.
+
+### Fixed (SCSFix, the fork; from the original's open issues, none yet tried in the affected games)
+
+- The recorder crashed games whose swap chain comes from a frame-generation layer (FSR 3, Streamline): a vtable outside `dxgi.dll`
+  is no longer patched (issue 22). It records from the exe's folder when REFramework loads it from `_storage_` (issue 2).
+  Both are covered by `selftest framegen` and `selftest dirrewrite`.
+- A game with a large helper exe next to it (Returnal's 114 MB online-services installer) is no longer taken for the game
+  (issue 26). An Unreal game whose version the files don't give is UE5 when its packages say so, not always UE4 (issue 46).
+- A scan no longer waits for good on one game whose drive doesn't answer: after 5 minutes it goes on, and the game says why
+  (issues 19, 29, 49, 51: the cause of those isn't known; this stops the wait).
+- "Stopped while a game is running" names the process holding the game's exe name; a recorder the game never loaded is named on its
+  page (issues 2, 14, 17, 27, 46, 48, 53).
+- A warm's rejected pipelines are worded as the driver's refusals, with nothing for the user to do (issues 24, 54).
 
 ## [1.2.2] - 2026-10-04
 

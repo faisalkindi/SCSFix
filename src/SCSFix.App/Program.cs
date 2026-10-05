@@ -15,6 +15,17 @@ public static class Program
     [STAThread]
     static int Main(string[] args)
     {
+        CrashLog.Install();
+        try { return Run(args); }
+        catch (Exception e) when (!IsDesignRun(args))
+        {
+            CrashLog.StartFailed(e);
+            return 1;
+        }
+    }
+
+    static int Run(string[] args)
+    {
         Updater.RunHooks();   // first: Update.exe runs install/update/uninstall hooks through here, and they exit
         // an offline session's cleanup helper: no window, no instance of its own
         if (args is [Core.App.ScsFix.CleanupArg, var game]) return Core.App.ScsFix.RunOfflineCleanup(new Core.App.AppStore(Core.App.AppStore.DefaultDir), game, exe: Environment.ProcessPath);

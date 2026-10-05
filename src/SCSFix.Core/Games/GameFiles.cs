@@ -26,8 +26,13 @@ public static class GameFiles
             .Select(f => new FileInfo(f))
             .GroupBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
             .Select(same => same.MinBy(f => Path.GetRelativePath(installDir, f.FullName).Count(c => c == Path.DirectorySeparatorChar))!)
-            .MaxBy(f => f.Length);
-        if (unreal != null) return unreal.FullName;
+            .ToList();
+        // The game is the *-Win64-Shipping.exe the build names; else the largest exe that isn't a helper (an installer of an online
+        // service can be larger than the game: Returnal's EpicOnlineServicesInstaller.exe is 114 MB, its game 0.4 MB)
+        var shipping = unreal.Where(f => UnrealGameName.IsMatch(f.Name)).ToList();
+        var rest = unreal.Where(f => !UnrealHelper.IsMatch(f.Name)).ToList();
+        var pick = (shipping.Count > 0 ? shipping : rest.Count > 0 ? rest : unreal).MaxBy(f => f.Length);
+        if (pick != null) return pick.FullName;
         if (BattlEyeTarget(installDir) is { } be) return be;
         if (launcherExe != null)
         {
@@ -44,6 +49,14 @@ public static class GameFiles
             .ThenByDescending(f => f.Length).FirstOrDefault();
         return guess == null ? null : LaunchedExe(installDir, guess, exes);
     }
+
+    /// <summary>What Unreal names its game's exe: Name-Win64-Shipping.exe (and its Test, Development and Xbox, GDK, siblings).</summary>
+    static readonly System.Text.RegularExpressions.Regex UnrealGameName = new(@"-(Win64|WinGDK|WinGRDK)-(Shipping|Test|Development|DebugGame)\.exe$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>An exe of a game's Binaries\Win64 that installs, bootstraps or reports and is never the game.</summary>
+    static readonly System.Text.RegularExpressions.Regex UnrealHelper = new(@"(Installer|Setup|Bootstrap|CrashReport|Redist|Prereq|Uninstall|Updater|CEFSubProcess|WebHelper|^Launcher\.exe$)",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>The game a launcher (<paramref name="guess"/>) starts: the target of CD PROJEKT RED's launcher-configuration.json
     /// next to it, else, when the guess imports no graphics API, the one larger exe of <paramref name="exes"/> that does (no

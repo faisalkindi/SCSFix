@@ -116,10 +116,16 @@ public sealed record OfflineSession(string GameId, string Exe, string InstallDir
 /// (exe stamp, store version, vendor profile, recording, SCSFix build) is unchanged.</summary>
 public sealed record Evaluation(string Key, EngineInfo? Engine, AntiCheat AntiCheat, PlanCheck Check);
 
-/// <summary>%LOCALAPPDATA%\SCSFix: settings.json, scan.json, dismissed.json + games\&lt;id&gt;\state.json.</summary>
+/// <summary>%LOCALAPPDATA%\SCSFix (or <c>data</c> beside the exe when a <c>portable.txt</c> sits there): settings.json, scan.json,
+/// dismissed.json + games\&lt;id&gt;\state.json.</summary>
 public sealed class AppStore(string dataDir)
 {
-    public static string DefaultDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SCSFix");
+    public static string DefaultDir { get; } = Resolve(AppContext.BaseDirectory, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+
+    /// <summary>Portable (upstream issue 50: a portable build still wrote to %LOCALAPPDATA%): an empty <c>portable.txt</c> next to the exe
+    /// keeps everything in <c>data</c> there. The recorders' armed ledger stays in %LOCALAPPDATA%: the proxy in the game folder reads it from there.</summary>
+    internal static string Resolve(string exeDir, string localAppData) =>
+        File.Exists(Path.Combine(exeDir, "portable.txt")) ? Path.Combine(exeDir, "data") : Path.Combine(localAppData, "SCSFix");
 
     public static readonly JsonSerializerOptions Json = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
 

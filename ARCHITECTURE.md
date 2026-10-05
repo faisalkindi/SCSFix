@@ -48,6 +48,14 @@ session), plans which pipelines to create, and replays them in a separate proces
 5. **Warm.** `scsfix_warm.exe` stages a copy of itself named like the game's exe and creates every item on a D3D12
    (or D3D11) device. The driver keys its cache on the exe name, so the game finds those compiles cached.
 
+A scan waits at most `ScsFix.EvaluateBudget` (5 minutes) for one game's evaluation (its engine, anti-cheat check and plan check): a
+game whose files sit on a drive that doesn't answer is shown Unsupported with that reason and the scan goes on. An Unreal install's
+exe is the `*-Win64-Shipping.exe` (also WinGDK, Test, Development), else the largest exe that isn't a helper (installer, setup,
+crash reporter, `Launcher.exe`), never the largest exe: an online-services installer can be bigger than the game. A game whose
+engine version can't be read from its files is taken as UE5 when its packages' legacy file version is -8 or lower, else UE4.27.
+When a game is "running" while the app finds none, the note names the processes holding its exe name (`RunningDetail`).
+A compile that would add more than 16 GB to the driver's cache is warned about in the queue (`ScsFix.LargeCompileWarning`; not a refusal).
+
 Games whose files don't say enough (engines that build root signatures at run time, AMD's state-dependent cache) need a
 recording: the optional recorder `d3d12.dll` captures what the game creates while it's played, and the plan replays it.
 
@@ -81,9 +89,14 @@ Building and running the tests: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Data locations
 
-Everything lives under `%LOCALAPPDATA%\SCSFix\`:
+Everything lives under `%LOCALAPPDATA%\SCSFix\`, or under `data\` beside `SCSFix.exe` when an empty `portable.txt` sits there
+(`AppStore.Resolve`, a portable folder). The recorders' armed ledger (`armed\`) always stays in `%LOCALAPPDATA%\SCSFix\`: the
+proxy in a game's folder reads it from there.
 
 - `settings.json`.
+- `crash.log`: what the app wrote when it couldn't start or an exception reached the top (`CrashLog`: the exception, the Windows and
+  runtime versions, and the CPU facts a start can depend on: AVX2, BMI2, SSE4.2, whether UAC is on). A start that fails also says so
+  in a message box. An updater hook step that throws is logged there and the others still run.
 - `games\<game id, ':' replaced by '_'>\` when that is a plain folder name; an id that isn't (separators, `..`,
   trailing dots or spaces, from launcher metadata) gets `%` and the id percent-encoded instead, a name the plain ones
   never take (`AppStore.GameDir`):
@@ -766,9 +779,16 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
 - **Clear recording** (`IScsFix.ClearRecording`, CLI `record clear <game>`): deletes the recording's files, all or
   none, never while the game runs or compiles; the recorder and its ini stay, and the keys file is rewritten. The next compile
   plans from the game's files.
+- **Loading**: the recorder works from the exe's folder when the game loads it from another (REFramework rewrites the module path of
+  a loaded DLL to its `_storage_` folder, where the ini, ledger lookup and files are not): when the proxy's own folder isn't the
+  exe's and the exe's folder holds a file of the proxy's name, that folder is used, and the log says so. A recorder the game never
+  loaded (the exe's last run began after it went in, and none of its files exists) is named on the game's page
+  (`ScsFix.NotLoaded`).
 - **Frame times** (`scsfix_frames.bin`, read by `FrameLog`): at the first device the recorder takes a factory from
   the process's `dxgi.dll` and hooks its `CreateSwapChain*` slots, then `Present` / `Present1` of every swap chain it
-  creates, keeping the original per vtable (a wrapper's swap chain and the real one differ). A frame is the QPC at which
+  creates, keeping the original per vtable (a wrapper's swap chain and the real one differ). A swap chain whose vtable lies outside
+  `dxgi.dll` (a frame-generation layer: FSR 3, Streamline) isn't hooked, with one log line per vtable: patching a layer's vtable
+  crashed such games. A frame is the QPC at which
   the outermost present of a thread returns, as PresentMon's `FrameTime` counts (measured equal to PresentMon frame for
   frame); nested presents and `DXGI_PRESENT_TEST` aren't frames. The hook queues the timestamp and a thread writes the
   file once a second. The file is u32 records: `0xFFFFFFFF` + u64 unix ms (the csv's `#session` stamp), u64 microseconds since the recorder loaded

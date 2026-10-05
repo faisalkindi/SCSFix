@@ -1110,13 +1110,14 @@ public sealed class QueueVm : Bindable
         if (driver is not { } d) return;   // not read yet
         if (d.Capped is { } used)
         {
-            CacheWarnText = AmdAppCache.QueueWarning(used, growth) ?? "";
+            CacheWarnText = AmdAppCache.QueueWarning(used, growth) ?? ScsFix.LargeCompileWarning(growth) ?? "";
             CacheWarn = CacheWarnText.Length > 0;
             return;
         }
         var (usage, limit) = (d.Usage.BytesOnDisk, d.Limit?.Bytes);
         CacheWarn = limit is { } max && planned > 0 && usage + planned > 0.9 * max;
         CacheWarnText = limit is { } l2 ? $"After this queue the cache is close to its {Format.Bytes(l2)} limit; older games may be evicted." : "";
+        if (!CacheWarn && ScsFix.LargeCompileWarning(growth) is { } large) (CacheWarn, CacheWarnText) = (true, large);   // no limit to reach, but one game this big
     }
 
     static void Sync(ObservableCollection<QueueRow> target, IEnumerable<QueueRow> rows)

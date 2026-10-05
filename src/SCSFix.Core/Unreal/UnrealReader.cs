@@ -667,7 +667,30 @@ public sealed partial class UnrealReader(string? dataDir = null) : IEngineReader
         string pe;
         try { pe = File.Exists(exePath) ? FileVersionInfo.GetVersionInfo(exePath).FileVersion ?? "" : ""; }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { pe = ""; }
-        return pe.StartsWith("UE5") ? EGame.GAME_UE5_1 : EGame.GAME_UE4_27;
+        if (pe.StartsWith("UE5")) return EGame.GAME_UE5_1;
+        // A pak of version 11 is 4.26.2 to 5.x, and the exe says nothing (anti-cheat, an exe that isn't read, a build string
+        // stripped): a package's own header tells UE4 from UE5, as the 4.27 default made Ready or Not (UE5) fail to read.
+        return PackageLegacyVersion(paks) is <= -8 ? EGame.GAME_UE5_1 : EGame.GAME_UE4_27;
+    }
+
+    /// <summary>FPackageFileSummary.LegacyFileVersion of the first small package (.uasset or .umap) a readable pak of <paramref name="paks"/>
+    /// holds: -7 for UE4 (4.27 and before), -8 or lower for UE5. Null when no pak lets one be read (encrypted, none).</summary>
+    internal static int? PackageLegacyVersion(string paks)
+    {
+        InitCodecs();
+        foreach (var path in Directory.EnumerateFiles(paks, "*.pak").OrderBy(p => new FileInfo(p).Length).Take(6))
+            try
+            {
+                using var r = new PakFileReader(path, new VersionContainer(EGame.GAME_UE5_1));
+                if (r.IsEncrypted) continue;
+                r.Mount(StringComparer.OrdinalIgnoreCase);
+                foreach (var (_, f) in r.Files)
+                    if (f.Extension is "uasset" or "umap" && f.Size is > 64 and < (1 << 20) && !f.IsEncrypted
+                        && f.Read() is { Length: >= 8 } b && BitConverter.ToUInt32(b, 0) == 0x9E2A83C1u)
+                        return BitConverter.ToInt32(b, 4);
+            }
+            catch (Exception) { }   // a pak CUE4Parse can't read: the next one
+        return null;
     }
 
     /// <summary>The engine version in the exe's "++UE4+Release-4.26" build string; null if absent or the exe can't be read.</summary>
