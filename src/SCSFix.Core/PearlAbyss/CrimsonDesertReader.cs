@@ -13,7 +13,8 @@ namespace SCSFix.Core.PearlAbyss;
 /// <item><c>f0_f1_stage_f3_n_f5_f6.padxil</c>: a 36-byte header ("PASC") and a DXIL container without its root signature.
 /// The stage is the third field (0 VS, 1 HS, 2 DS, 3 GS, 4 PS, 5 CS, 6+ ray tracing). The files of one pipeline share f0, f1, f5
 /// and f6; f3 is the shader's own. f0 is the hash (lookup3, seed 0xC5EDE) of the pipeline's pass name in PascalCase, f1 that of its
-/// source file name (<c>Name.hlsl</c>).</item>
+/// source file name (<c>Name.hlsl</c>); the vertex and pixel shaders of a pass come from different source files, so the pairs
+/// aren't in the names: the planner pairs them by what a vertex shader feeds.</item>
 /// <item><c>name.pars</c>: that pass's root signature, a root-signature-only DXIL container, ChaCha20-encrypted with a key from
 /// the file name. The .pars names are lower-case: the pass name comes back by trying their capitalisations against the f0
 /// values (<see cref="Pairing"/>); a pass it can't give back is paired by what its shaders declare, when only one root
@@ -27,6 +28,8 @@ public sealed class CrimsonDesertReader : IEngineReader
     const string Dir = "0017", Cache = "shadercache__/";
     const int HeaderSize = 36, MaxCapitals = 6, MaxCandidates = 4;
     const uint NameSeed = 0x000C5EDE;
+    /// <summary>1: one map per pipeline by name. 2: one map per pass, the planner pairing its shaders.</summary>
+    const int ReaderVersion = 2;
 
     /// <summary>Where an indexed blob is: its entry, whether it's encrypted, the bytes to skip, and the SHA-1 of the bytes after
     /// that (an entry the index made for another root signature has an id of its own, the same bytes).</summary>
@@ -116,16 +119,27 @@ public sealed class CrimsonDesertReader : IEngineReader
             }
         foreach (var (sha, (_, _, e)) in rs) locs[sha] = new Loc(e, true, 0, sha);
 
-        // one map per pipeline and root signature: the files sharing f0, f1, f5 and f6 (a compute shader alone)
+        // one map per pass and root signature, its graphics shaders together: the planner pairs a vertex shader with the pixel shaders
+        // its outputs feed (the names don't say which pair a pipeline was: a pass's vertex and pixel shaders come from different
+        // source files, and 7,000 pixel shaders had no vertex shader beside them). A compute shader is a pipeline of its own.
         var maps = new Dictionary<string, ShaderMap>();
-        foreach (var g in items.Where(i => roots.ContainsKey(i.F[0])).GroupBy(i => StageOf(i.F[2]) == Stage.Compute ? "cs:" + i.Sha + i.F[0] : string.Join('_', i.F[0], i.F[1], i.F[5], i.F[6])))
-            foreach (var root in roots[g.First().F[0]])
+        foreach (var g in items.Where(i => roots.ContainsKey(i.F[0])).GroupBy(i => i.F[0]))
+            foreach (var root in roots[g.Key])
             {
-                var members = g.Select(i => IdOf(i.Sha, root)).Distinct().Order(StringComparer.Ordinal).ToList();
-                var hash = CarvedReader.Sha1Hex(string.Join(',', members));
-                maps.TryAdd(hash, new ShaderMap(hash, "shadercache", CarvedReader.Platform, members, IsPipeline: true));
+                var graphics = g.Where(i => StageOf(i.F[2]) != Stage.Compute).Select(i => IdOf(i.Sha, root)).Distinct().Order(StringComparer.Ordinal).ToList();
+                if (graphics.Count > 0)
+                {
+                    var hash = CarvedReader.Sha1Hex(g.Key + "|" + root + "|" + string.Join(',', graphics));
+                    maps.TryAdd(hash, new ShaderMap(hash, "shadercache", CarvedReader.Platform, graphics));
+                }
+                foreach (var cs in g.Where(i => StageOf(i.F[2]) == Stage.Compute).Select(i => IdOf(i.Sha, root)).Distinct().Order(StringComparer.Ordinal))
+                {
+                    var hash = CarvedReader.Sha1Hex("cs|" + cs);
+                    maps.TryAdd(hash, new ShaderMap(hash, "shadercache", CarvedReader.Platform, [cs], IsPipeline: true));
+                }
             }
         using var content = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
+        content.AppendData(Encoding.UTF8.GetBytes($"reader {ReaderVersion};"));   // a change in how the files are read makes a new index, so a plan built before it isn't reused
         foreach (var e in entries.OrderBy(e => e.Path, StringComparer.Ordinal))
             content.AppendData(Encoding.UTF8.GetBytes($"{e.Path}|{e.Offset}|{e.CompSize}|{e.OrigSize}\n"));
         located[game.Id] = locs;

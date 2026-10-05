@@ -35,7 +35,7 @@ public class CrimsonDesertSurvey(ITestOutputHelper output)
         output.WriteLine("stages: " + string.Join(", ", index.Shaders.Values.GroupBy(s2 => s2.Stage).Select(g => $"{g.Key} {g.Count()}")));
         output.WriteLine("map shapes: " + string.Join(", ", index.Maps.GroupBy(m => string.Join('+', m.Shaders.Select(s2 => index.Shaders[s2].Stage).Order())).OrderByDescending(g => g.Count()).Take(12).Select(g => $"{g.Key} x{g.Count()}")));
         // every map's shaders share one root signature, and it covers them
-        var bad = index.Maps.Count(m => m.Shaders.Select(s2 => index.Shaders[s2].RootSignature).Distinct().Count() != 1);
+        var bad = index.Maps.Count(m => m.Shaders.Select(s2 => index.Shaders[s2].RootSignature).Distinct().Count() != 1);   // a map is one root signature's
         output.WriteLine($"distinct shaders planned: {index.Shaders.Keys.Select(k => k).Count()} entries");
         output.WriteLine($"maps with more than one root signature: {bad}");
         Assert.Equal(0, bad);

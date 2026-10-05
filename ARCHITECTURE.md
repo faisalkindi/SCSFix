@@ -318,6 +318,9 @@ open game files read-only and never launch or attach to the game.
   the lower-cased file name; the format is lazorr410's documented one). `*.padxil` is a 36-byte header ("PASC") and a DXIL
   container with no root signature; its name `f0_f1_stage_f3_n_f5_f6` gives the stage (f2), the pipeline (the files sharing f0,
   f1, f5 and f6) and the pass: f0 is the lookup3 hash (seed 0xC5EDE) of the pass's PascalCase name, f1 of its source file name.
+  A pass's vertex and pixel shaders come from different source files and the names don't pair them (a first reading that did
+  made 7,000 pixel-only pipelines and the driver rejected 12,700 of 26,909), so the index has one map per pass and root signature
+  and the planner pairs a vertex shader with the pixel shaders its outputs feed (4 of 25,878 then rejected).
   `*.pars` is that pass's root signature, a root-signature-only container, encrypted. The .pars names are lower-case, so a pass's
   name comes back by trying their capitalisations (up to six capitals) against the f0 values: 135 of 239 passes name their
   root signature that way, and every one of them covers every shader of the pass (the check that the reading is right). A
