@@ -1,8 +1,10 @@
-// Compile-time check of the D3D12 and DXGI vtable slots proxy.cpp patches: the C interface's Vtbl structs
+// Compile-time check of the D3D12, D3D11 and DXGI vtable slots proxy.cpp patches: the C interface's Vtbl structs
 // list the methods in COM ABI order, so a slot is the method's offset in its Vtbl. Nothing here is linked into anything.
 #define CINTERFACE
 #include <windows.h>
 #include <d3d12.h>
+#define D3D11_NO_HELPERS  // the CD3D11_* helpers call methods the C interface doesn't have
+#include <d3d11.h>
 #include <dxgi1_2.h>
 #include <cstddef>
 
@@ -19,6 +21,14 @@ SLOT(ID3D12PipelineLibrary, LoadComputePipeline, 10)
 SLOT(ID3D12PipelineLibrary1, LoadPipeline, 13)
 SLOT(ID3D12DeviceFactory, CreateDevice, 9)
 SLOT(ID3D12SDKConfiguration1, CreateDeviceFactory, 4)
+SLOT(ID3D11Device, CreateVertexShader, 12)
+SLOT(ID3D11Device, CreateGeometryShader, 13)
+SLOT(ID3D11Device, CreatePixelShader, 15)
+SLOT(ID3D11Device, CreateHullShader, 16)
+SLOT(ID3D11Device, CreateDomainShader, 17)
+SLOT(ID3D11Device, CreateComputeShader, 18)
+SLOT(ID3D11DeviceContext, HSSetShader, 60)
+SLOT(ID3D11DeviceContext, DSSetShader, 64)
 SLOT(IDXGISwapChain, Present, 8)
 SLOT(IDXGISwapChain1, Present1, 22)
 SLOT(IDXGIFactory, CreateSwapChain, 10)

@@ -7,6 +7,7 @@
 //        time around cached shaders; see fields_child). Uses the system d3d12.dll, not the proxy.
 // `selftest dxrchild 6 <seed> <blobs> <out>` creates the recorder rows through the proxy d3d12.dll next to the exe, and
 //        `selftest dxrblobs <seed> <out>` writes the DXIL libraries they need (gen/test_warm_dxr.py records, warms, replays).
+// `selftest d3d11rec`: the proxy installed as d3d11.dll records a DirectX 11 game's shaders and tessellation pairs, once each (d3d11rec_parent).
 // `selftest layoutrules` checks which input layouts the runtime accepts, on WARP (layout_rules).
 // `selftest so <seed>` records stream output pipelines through the proxy, on WARP (so_rows; gen/test_so.py).
 // `selftest dxr [runs]` runs only probe 7: does the driver's disk cache keep ray tracing state objects
@@ -26,6 +27,9 @@
 #include <knownfolders.h>
 #include <d3d12.h>
 #include <d3d12shader.h>
+#define D3D11_NO_HELPERS
+#include <d3d11.h>
+#include <d3dcompiler.h>
 #include <dxgi1_4.h>
 #include <tlhelp32.h>
 #include <bcrypt.h>
@@ -3321,6 +3325,148 @@ static int unload_rows(const std::wstring& dir) {
     return SUCCEEDED(hr) ? 0 : 1;
 }
 
+
+// ---------------------------------------------------------------------------------------------------------------------
+// `selftest d3d11rec`: the proxy installed as d3d11.dll records the shaders a DirectX 11 "game" creates. The game is a copy of this
+// exe in a fresh folder next to a copy of the proxy named d3d11.dll (a game's own d3d11.dll is what its loader takes first).
+// Run twice: the first records 3 shader items (VS, PS, CS), the HS+DS pair it binds and their 5 blobs; the second records nothing again.
+// WARP is the adapter (the recorder doesn't care which GPU); the warm of what it recorded is gen/test_d3d11rec.py's.
+static std::string d3d11_hlsl(const char* name) {
+    static const std::map<std::string, std::string> src = {
+        {"vs", "float4 main(float4 p : POSITION) : SV_Position { return p; }"},
+        {"ps", "float4 main(float4 p : SV_Position) : SV_Target { return float4(0.25, 0.5, 0.75, 1); }"},
+        {"cs", "RWStructuredBuffer<uint> o : register(u0); [numthreads(1, 1, 1)] void main(uint3 t : SV_DispatchThreadID) { o[t.x] = t.x + 3; }"},
+        {"hs", "struct V { float4 p : POSITION; }; struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; };"
+               "PC pcf(InputPatch<V, 3> ip) { PC o; o.e[0] = o.e[1] = o.e[2] = 1; o.i = 1; return o; }"
+               "[domain(\"tri\")][partitioning(\"integer\")][outputtopology(\"triangle_cw\")][outputcontrolpoints(3)][patchconstantfunc(\"pcf\")]"
+               "V main(InputPatch<V, 3> ip, uint i : SV_OutputControlPointID) { return ip[i]; }"},
+        {"ds", "struct V { float4 p : POSITION; }; struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; };"
+               "[domain(\"tri\")] float4 main(PC pc, float3 uvw : SV_DomainLocation, const OutputPatch<V, 3> t) : SV_Position"
+               "{ return t[0].p * uvw.x + t[1].p * uvw.y + t[2].p * uvw.z; }"},
+    };
+    return src.at(name);
+}
+
+static int d3d11rec_child(const std::wstring& dir) {
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
+    HMODULE m = LoadLibraryW((dir + L"d3d11.dll").c_str());
+    CHECK(m && GetProcAddress(m, "SCSFix_StartWarm"));   // our copy, not the system's
+    auto create = (PFN_D3D11_CREATE_DEVICE)GetProcAddress(m, "D3D11CreateDevice");
+    CHECK(create);
+    IDXGIFactory4* f = nullptr;
+    IDXGIAdapter* warp = nullptr;
+    CHECK(SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
+    ID3D11Device* dev = nullptr;
+    ID3D11DeviceContext* ctx = nullptr;
+    D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_11_0, got{};
+    CHECK(SUCCEEDED(create(warp, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, &fl, 1, D3D11_SDK_VERSION, &dev, &got, &ctx)));
+    auto compile = [&](const char* name, const char* target) {
+        std::string s = d3d11_hlsl(name);
+        ID3DBlob *b = nullptr, *e = nullptr;
+        if (FAILED(D3DCompile(s.data(), s.size(), name, nullptr, nullptr, "main", target, 0, 0, &b, &e))) {
+            printf("compile %s: %s\n", name, e ? (const char*)e->GetBufferPointer() : "?");
+            return (ID3DBlob*)nullptr;
+        }
+        return b;
+    };
+    ID3DBlob *vs = compile("vs", "vs_5_0"), *ps = compile("ps", "ps_5_0"), *cs = compile("cs", "cs_5_0"), *hs = compile("hs", "hs_5_0"), *ds = compile("ds", "ds_5_0");
+    CHECK(vs && ps && cs && hs && ds);
+    ID3D11VertexShader *v = nullptr, *v2 = nullptr;
+    ID3D11PixelShader* p = nullptr;
+    ID3D11ComputeShader* c = nullptr;
+    ID3D11HullShader* h = nullptr;
+    ID3D11DomainShader* d = nullptr;
+    CHECK(SUCCEEDED(dev->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, &v)));
+    CHECK(SUCCEEDED(dev->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, &v2)));   // the same bytes again: one record
+    CHECK(SUCCEEDED(dev->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &p)));
+    CHECK(SUCCEEDED(dev->CreateComputeShader(cs->GetBufferPointer(), cs->GetBufferSize(), nullptr, &c)));
+    CHECK(SUCCEEDED(dev->CreateHullShader(hs->GetBufferPointer(), hs->GetBufferSize(), nullptr, &h)));
+    CHECK(SUCCEEDED(dev->CreateDomainShader(ds->GetBufferPointer(), ds->GetBufferSize(), nullptr, &d)));
+    ctx->HSSetShader(h, nullptr, 0);
+    ctx->DSSetShader(d, nullptr, 0);
+    ctx->HSSetShader(nullptr, nullptr, 0);
+    ctx->DSSetShader(nullptr, nullptr, 0);
+    ctx->DSSetShader(d, nullptr, 0);   // the same pair bound again: still one record
+    ctx->HSSetShader(h, nullptr, 0);
+    printf("created 5 shaders\n");
+    return 0;
+}
+
+struct DbRows { std::map<char, int> tags; std::map<std::string, std::string> blobs; std::vector<std::string> d11, pairs; };
+static bool read_db(const std::wstring& path, DbRows& out) {
+    FILE* f = _wfopen(path.c_str(), L"rb");
+    if (!f) return false;
+    for (;;) {
+        int tag = fgetc(f);
+        uint32_t len;
+        if (tag == EOF || fread(&len, 4, 1, f) != 1) break;
+        std::string p(len, '\0');
+        if (fread(p.data(), 1, len, f) != len) break;
+        ++out.tags[(char)tag];
+        if (tag == 'B') out.blobs[p.substr(0, 20)] = p.substr(20);
+        else if (tag == '1') out.d11.push_back(p);
+        else if (tag == '2') out.pairs.push_back(p);
+    }
+    fclose(f);
+    return true;
+}
+static int run_wait(std::wstring cmd, const std::wstring& dir) {
+    STARTUPINFOW si{sizeof si};
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, dir.c_str(), &si, &pi)) return -1;
+    WaitForSingleObject(pi.hProcess, 120000);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread), CloseHandle(pi.hProcess);
+    return (int)code;
+}
+static int d3d11rec_parent(const std::wstring& self, const std::wstring& dir) {
+    namespace fs = std::filesystem;
+    const std::wstring t = dir + L"d3d11rec\\";
+    std::error_code ec;
+    fs::remove_all(t, ec);
+    fs::create_directories(t);
+    fs::copy_file(self, t + L"game11.exe");
+    fs::copy_file(dir + L"d3d11.dll", t + L"d3d11.dll");
+    const std::wstring game = t + L"game11.exe";
+    for (int run = 1; run <= 2; ++run) {
+        CHECK(run_wait(L"\"" + game + L"\" d3d11recchild", t) == 0);
+        DbRows rows;
+        CHECK(read_db(t + L"scsfix.db", rows));
+        printf("run %d: B=%d '1'=%d '2'=%d\n", run, rows.tags['B'], rows.tags['1'], rows.tags['2']);
+        CHECK(rows.tags['1'] == 3 && rows.tags['2'] == 1 && rows.tags['B'] == 5);   // VS PS CS items, the HS+DS pair, 5 blobs; after the second run too: nothing recorded twice
+        std::set<std::string> stages;
+        for (auto& r : rows.d11) {
+            CHECK(r.size() == 24);
+            uint32_t stage;
+            memcpy(&stage, r.data(), 4);
+            stages.insert(std::to_string(stage));
+            auto it = rows.blobs.find(r.substr(4, 20));
+            CHECK(it != rows.blobs.end());   // the blob the record names is in the db...
+            uint8_t h[20];
+            CHECK(!BCryptHash(BCRYPT_SHA1_ALG_HANDLE, nullptr, 0, (PUCHAR)it->second.data(), (ULONG)it->second.size(), h, 20) && !memcmp(h, r.data() + 4, 20));   // ...and is what it hashes to
+            CHECK(it->second.compare(0, 4, "DXBC") == 0);
+        }
+        CHECK(stages == std::set<std::string>({"1", "2", "6"}));   // VS PS CS: a HS and a DS only come in the pair
+        CHECK(rows.pairs[0].size() == 40);
+        std::string csv;
+        {
+            FILE* f = _wfopen((t + L"scsfix_creates.csv").c_str(), L"rb");
+            CHECK(f);
+            char b[4096];
+            for (size_t n; (n = fread(b, 1, sizeof b, f)) > 0;) csv.append(b, n);
+            fclose(f);
+        }
+        int d_rows = 0, known = 0;
+        for (size_t at = 0; (at = csv.find(",D,", at)) != std::string::npos; at += 3) ++d_rows, known += csv[at + 3] == '1';
+        printf("run %d: csv D rows=%d known=%d\n", run, d_rows, known);
+        CHECK(d_rows == 6 * run);                       // 6 creates per run (the VS twice)
+        CHECK(known == (run == 1 ? 0 : 6));             // "known" = in the db when the launch began: none in run 1, all six creates of run 2
+    }
+    printf("PASS d3d11rec\n");
+    return 0;
+}
+
 // The app's attestation for this exe, as ScsFix.WriteAttestation writes it: scsfix.armed here (its nonce kept when it
 // has one, so copies of this exe running from the same folder share it) and the ledger entry
 // %LOCALAPPDATA%\SCSFix\armed\<SHA-1 of the exe's path, UTF-16LE, A-Z lowered>, removed when this process exits.
@@ -3364,6 +3510,8 @@ int wmain(int argc, wchar_t** argv) {
     // The proxy records only under the app's attestation (ScsFix.ArmedFile); here the selftest is the app. Kept when
     // there already, none with SCSFIX_SELFTEST_UNARMED set.
     if (!GetEnvironmentVariableW(L"SCSFIX_SELFTEST_UNARMED", nullptr, 0)) arm_self(dir, a);
+    if (argc > 1 && !wcscmp(argv[1], L"d3d11rec")) return d3d11rec_parent(a, dir);
+    if (argc > 1 && !wcscmp(argv[1], L"d3d11recchild")) return d3d11rec_child(dir);
     if (argc > 1 && !wcscmp(argv[1], L"layoutrules")) return layout_rules();
     if (argc > 2 && !wcscmp(argv[1], L"so")) return so_rows(dir, (unsigned)_wtoi(argv[2]));
     if (argc > 2 && !wcscmp(argv[1], L"frames")) return frames_rows(dir, _wtoi(argv[2]));

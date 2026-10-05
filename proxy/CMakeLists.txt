@@ -15,6 +15,8 @@ configure_file(version.h.in version.h @ONLY)
 
 add_library(scsfix SHARED proxy.cpp warm11.cpp vtslots.cpp stubs.asm d3d12.def version.rc)
 set_target_properties(scsfix PROPERTIES OUTPUT_NAME d3d12)
+# The same binary is the recorder of a DirectX 11 game under another name: DllMain reads the file name it was loaded under.
+add_custom_command(TARGET scsfix POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:scsfix> $<TARGET_FILE_DIR:scsfix>/d3d11.dll)
 # /MAP: function RVAs for reading crash stacks. Delay-load what only the D3D11 warm uses (in a game it is never loaded) and
 # what only admission at the first device uses (the ledger's folder).
 target_link_options(scsfix PRIVATE /MAP /DELAYLOAD:d3d11.dll /DELAYLOAD:d3dcompiler_47.dll /DELAYLOAD:dxgi.dll /DELAYLOAD:shell32.dll /DELAYLOAD:ole32.dll)

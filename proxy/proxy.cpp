@@ -33,6 +33,8 @@
 #include <psapi.h>
 #include <share.h>
 #include <d3d12.h>
+#define D3D11_NO_HELPERS  // d3d11.h's CD3D11_* helpers don't compile after d3d12.h; nothing here uses them
+#include <d3d11.h>
 #include <dxgi1_2.h>
 #include <bcrypt.h>
 #include <io.h>
@@ -1085,7 +1087,11 @@ static void load_file(const std::wstring& path, bool main, bool with_bytes) {
             } else if (tag == 'W') {  // nothing to replay itself
                 if (main) g_keys.insert(key_of('W', p));
                 if (with_bytes && len == 40) g_layer_made.insert(*(const Hash*)p.data());
-            } else if (tag == '1' || tag == '2') {  // D3D11 items: nothing to record against, only warm needs them
+            } else if (tag == '1' || tag == '2') {  // D3D11 items (a plan's, or recorded by the d3d11.dll role): warm replays them
+                if (main) {
+                    Hash k = key_of((char)tag, p);
+                    g_keys.insert(k), g_known.insert(k);
+                }
                 if (with_bytes) g_items11.push_back(std::move(p));
             } else if (tag == 'P') {  // templates (main db, or gen records written before the items) are known here
                 Reader r{p};
@@ -2080,22 +2086,24 @@ static HRESULT STDMETHODCALLTYPE hk_createlib(ID3D12Device1* dev, const void* bl
     return hr;
 }
 
+static void open_session() {  // once, at the first device: the db, the csv and its #session marker
+    load_db(g_warm);
+    g_csv = _wfopen((g_dir + L"scsfix_creates.csv").c_str(), L"a");
+    if (g_csv && !g_staged) {  // a staged scsfix_warm run is a warm-up, not a play session: no marker
+        g_session_unix = unix_ms();
+        double t = now_ms();  // #clock: the stamp on the t_ms clock, which starts when the recorder loads
+        fprintf(g_csv, "#session,%lld,%ls\n#clock,%.1f\n", g_session_unix, exe_name().c_str(), t);
+        fflush(g_csv);
+        g_wrote_session = true;
+        g_csv_h = (HANDLE)_get_osfhandle(_fileno(g_csv));
+    }
+}
+
 static void install_hooks(IUnknown* unk) {
     ID3D12Device* dev;
     if (FAILED(unk->QueryInterface(IID_PPV_ARGS(&dev)))) return;
     static std::once_flag once;
-    std::call_once(once, [] {
-        load_db(g_warm);
-        g_csv = _wfopen((g_dir + L"scsfix_creates.csv").c_str(), L"a");
-        if (g_csv && !g_staged) {  // a staged scsfix_warm run is a warm-up, not a play session: no marker
-            g_session_unix = unix_ms();
-            double t = now_ms();  // #clock: the stamp on the t_ms clock, which starts when the recorder loads
-            fprintf(g_csv, "#session,%lld,%ls\n#clock,%.1f\n", g_session_unix, exe_name().c_str(), t);
-            fflush(g_csv);
-            g_wrote_session = true;
-            g_csv_h = (HANDLE)_get_osfhandle(_fileno(g_csv));
-        }
-    });
+    std::call_once(once, open_session);
     std::lock_guard l(g_mx);
     void** vt = *(void***)dev;
     if (!g_hooked_vt) g_hooked_vt = vt;
@@ -2791,6 +2799,168 @@ extern "C" void WINAPI SCSFix_Stats(uint64_t out[7]) {
     memcpy(out, v, sizeof v);
 }
 
+
+// ---------------------------------------------------------------------------------------------------------------------
+// D3D11 recorder. The same binary is installed as d3d11.dll next to a DirectX 11 game: DllMain reads its own file name
+// (g_is11) and then loads the system d3d11.dll instead of d3d12.dll. A D3D11 shader is created lazily: the driver compiles it
+// at the first draw that uses it, so there is no pipeline to record, only the shaders. Each CreateXShader the game makes becomes
+// a '1' record (u32 stage + sha1 of its 'B' blob, the plan's own D3D11 item; a hull or domain shader keeps only its blob), and each
+// hull/domain shader pair the game binds together a '2' record (HS sha1 + DS sha1): scsfix_warm replays them like the items of a plan (load_file puts both in
+// g_items11). The csv gets one 'D' row per shader create (ms is the create call, not a compile).
+// Not recorded: CreateGeometryShaderWithStreamOutput (its declaration isn't kept), D3D11 on D3D12, deferred contexts' HS/DS
+// binds, a layer that wraps the device (ReShade as d3d11.dll: the app never installs next to one).
+#define REAL11_EXPORTS(X) \
+    X(CreateDirect3D11DeviceFromDXGIDevice) X(CreateDirect3D11SurfaceFromDXGISurface) X(D3D11CoreCreateDevice) \
+    X(D3D11CoreCreateLayeredDevice) X(D3D11CoreGetLayeredDeviceSize) X(D3D11CoreRegisterLayers) \
+    X(D3D11CreateDeviceForD3D12) X(D3D11On12CreateDevice) X(D3DKMTCloseAdapter) X(D3DKMTCreateAllocation) \
+    X(D3DKMTCreateContext) X(D3DKMTCreateDevice) X(D3DKMTCreateSynchronizationObject) \
+    X(D3DKMTDestroyAllocation) X(D3DKMTDestroyContext) X(D3DKMTDestroyDevice) \
+    X(D3DKMTDestroySynchronizationObject) X(D3DKMTEscape) X(D3DKMTGetContextSchedulingPriority) \
+    X(D3DKMTGetDeviceState) X(D3DKMTGetDisplayModeList) X(D3DKMTGetMultisampleMethodList) \
+    X(D3DKMTGetRuntimeData) X(D3DKMTGetSharedPrimaryHandle) X(D3DKMTLock) X(D3DKMTOpenAdapterFromHdc) \
+    X(D3DKMTOpenResource) X(D3DKMTPresent) X(D3DKMTQueryAdapterInfo) X(D3DKMTQueryAllocationResidency) \
+    X(D3DKMTQueryResourceInfo) X(D3DKMTRender) X(D3DKMTSetAllocationPriority) \
+    X(D3DKMTSetContextSchedulingPriority) X(D3DKMTSetDisplayMode) X(D3DKMTSetDisplayPrivateDriverFormat) \
+    X(D3DKMTSetGammaRamp) X(D3DKMTSetVidPnSourceOwner) X(D3DKMTSignalSynchronizationObject) X(D3DKMTUnlock) \
+    X(D3DKMTWaitForSynchronizationObject) X(D3DKMTWaitForVerticalBlankEvent) X(D3DPerformance_BeginEvent) \
+    X(D3DPerformance_EndEvent) X(D3DPerformance_GetStatus) X(D3DPerformance_SetMarker) \
+    X(EnableFeatureLevelUpgrade) X(OpenAdapter10) X(OpenAdapter10_2)
+extern "C" {
+#define DECL11(n) void* real_##n;
+REAL11_EXPORTS(DECL11)
+#undef DECL11
+}
+using PFN_CreateDevice11 = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*, UINT, UINT, ID3D11Device**,
+                                            D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+using PFN_CreateDeviceSc11 = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*, UINT, UINT,
+                                              const DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**, ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+static bool g_is11;  // loaded as d3d11.dll
+static HMODULE g_real11;
+static PFN_CreateDevice11 real_CreateDevice11;
+static PFN_CreateDeviceSc11 real_CreateDeviceSc11;
+// vtslots.cpp checks these against d3d11.h at compile time
+using PFN_CreateSh11 = HRESULT(STDMETHODCALLTYPE*)(ID3D11Device*, const void*, SIZE_T, ID3D11ClassLinkage*, void**);
+using PFN_HsSet11 = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11HullShader*, ID3D11ClassInstance* const*, UINT);
+using PFN_DsSet11 = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11DomainShader*, ID3D11ClassInstance* const*, UINT);
+enum { SLOT11_VS = 12, SLOT11_GS = 13, SLOT11_PS = 15, SLOT11_HS = 16, SLOT11_DS = 17, SLOT11_CS = 18, SLOT11_HSSET = 60, SLOT11_DSSET = 64 };
+enum { ST11_VS = 1, ST11_PS = 2, ST11_DS = 3, ST11_HS = 4, ST11_GS = 5, ST11_CS = 6 };  // the '1' record's stage numbers
+static PFN_CreateSh11 o11_create[7];  // by stage
+static PFN_HsSet11 o11_hsset;
+static PFN_DsSet11 o11_dsset;
+struct Sh11 { Hash sha; uint32_t stage; };
+static std::unordered_map<void*, Sh11> g_sh11;  // live shader object -> its blob hash, under g_mx: the pair hook names shaders by it
+static uint64_t g_creates11, g_pairs11;
+
+static void record11(uint32_t stage, const void* code, SIZE_T len, void* obj, double ms) {
+    auto n0 = std::chrono::steady_clock::now();
+    double t_ret = now_ms();
+    D3D12_SHADER_BYTECODE b{code, len};
+    const size_t n = shader_len(b);   // a DXBC container's declared size, like every shader hash here
+    const Hash h = sha1(code, n);
+    std::string payload(24, '\0');
+    memcpy(payload.data(), &stage, 4), memcpy(payload.data() + 4, h.data(), 20);
+    const Hash k = key_of('1', payload);
+    std::lock_guard l(g_mx);
+    g_sh11[obj] = {h, stage};
+    if (++g_creates11 == 1) logf("first D3D11 shader seen (stage %u)", stage);
+    // A hull or a domain shader is an item only inside a '2' pair (alone it can't be drawn: warm11 fails it): its blob is kept for
+    // the pair, which pair11 records when the game binds the two together.
+    const bool item = stage != ST11_HS && stage != ST11_DS;
+    const bool known = item ? g_known.count(k) || imported(k) : g_blobs_on_disk.count(h) || imported(h);
+    if (g_db_capped && g_db_bytes >= g_db_cap) {
+        if (!g_db_full) g_db_full = true, logf("db: recording limit reached (%llu of %llu bytes): new shaders are not recorded", g_db_bytes, g_db_cap);
+    } else if (g_db && (item ? fresh(g_keys, k) : !known)) {
+        if (fresh(g_blobs_on_disk, h)) put('B', h.data(), 20, code, n);
+        if (item) put('1', payload.data(), payload.size());
+        db_flush();
+    }
+    if (g_csv) {
+        double own = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - n0).count();
+        fprintf(g_csv, "%.1f,D,%d,%d,%.3f,%s,%.3f,%lu,%d\n", t_ret, (int)known, (int)known, ms, hex(k).data(), own, GetCurrentThreadId(), (int)t_presenting);
+        fflush(g_csv);
+    }
+    if (g_creates11 % 500 == 0) logf("d3d11: shaders=%llu pairs=%llu db=%zu", g_creates11, g_pairs11, g_keys.size());
+}
+
+template <uint32_t Stage> static HRESULT STDMETHODCALLTYPE hk11_create(ID3D11Device* dev, const void* code, SIZE_T len, ID3D11ClassLinkage* link, void** pp) {
+    auto t0 = std::chrono::steady_clock::now();
+    HRESULT hr = o11_create[Stage](dev, code, len, link, pp);
+    if (SUCCEEDED(hr) && pp && *pp && code && len)
+        record11(Stage, code, len, *pp, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+    return hr;
+}
+
+// A hull and a domain shader can't be drawn alone (warm11 draws the two together): the pair the game binds on a context is the
+// pair to warm. Only the shader objects are compared on each bind, and only a changed pair takes the lock.
+static thread_local void *t11_hs, *t11_ds;
+static void pair11() {
+    std::lock_guard l(g_mx);
+    auto hs = g_sh11.find(t11_hs), ds = g_sh11.find(t11_ds);
+    if (hs == g_sh11.end() || ds == g_sh11.end() || hs->second.stage != ST11_HS || ds->second.stage != ST11_DS) return;
+    std::string payload(40, '\0');
+    memcpy(payload.data(), hs->second.sha.data(), 20), memcpy(payload.data() + 20, ds->second.sha.data(), 20);
+    if (g_db_capped && g_db_bytes >= g_db_cap) return;
+    if (fresh(g_keys, key_of('2', payload)) && g_db) put('2', payload.data(), payload.size()), db_flush(), ++g_pairs11;
+}
+static void STDMETHODCALLTYPE hk11_hsset(ID3D11DeviceContext* c, ID3D11HullShader* s, ID3D11ClassInstance* const* ci, UINT n) {
+    o11_hsset(c, s, ci, n);
+    if ((void*)s != t11_hs) { t11_hs = s; if (s && t11_ds) pair11(); }
+}
+static void STDMETHODCALLTYPE hk11_dsset(ID3D11DeviceContext* c, ID3D11DomainShader* s, ID3D11ClassInstance* const* ci, UINT n) {
+    o11_dsset(c, s, ci, n);
+    if ((void*)s != t11_ds) { t11_ds = s; if (s && t11_hs) pair11(); }
+}
+
+// Every device the game gets, however it asked for one: the hooks, once per vtable (the same as device_created for D3D12).
+static void device11_created(ID3D11Device* dev) {
+    if (!dev || !admitted()) return;
+    pin_self();
+    static std::once_flag once;
+    std::call_once(once, open_session);
+    {
+        std::lock_guard l(g_mx);
+        void** vt = *(void***)dev;
+        logf("hook: D3D11 device %p vtable %p", (void*)dev, (void*)vt);
+        patch(vt, SLOT11_VS, (void*)hk11_create<ST11_VS>, o11_create[ST11_VS]);
+        patch(vt, SLOT11_PS, (void*)hk11_create<ST11_PS>, o11_create[ST11_PS]);
+        patch(vt, SLOT11_DS, (void*)hk11_create<ST11_DS>, o11_create[ST11_DS]);
+        patch(vt, SLOT11_HS, (void*)hk11_create<ST11_HS>, o11_create[ST11_HS]);
+        patch(vt, SLOT11_GS, (void*)hk11_create<ST11_GS>, o11_create[ST11_GS]);
+        patch(vt, SLOT11_CS, (void*)hk11_create<ST11_CS>, o11_create[ST11_CS]);
+        ID3D11DeviceContext* ctx = nullptr;
+        dev->GetImmediateContext(&ctx);
+        if (ctx) {
+            patch(*(void***)ctx, SLOT11_HSSET, (void*)hk11_hsset, o11_hsset);
+            patch(*(void***)ctx, SLOT11_DSSET, (void*)hk11_dsset, o11_dsset);
+            ctx->Release();
+        }
+    }
+    static std::once_flag frames;
+    std::call_once(frames, frame_hooks);
+}
+static void device11_created(ID3D11Device** dev, ID3D11DeviceContext** ctx) {
+    if (dev && *dev) return device11_created(*dev);
+    ID3D11Device* d = nullptr;
+    if (ctx && *ctx) (*ctx)->GetDevice(&d);
+    if (d) device11_created(d), d->Release();
+}
+extern "C" HRESULT WINAPI Proxy_D3D11CreateDevice(IDXGIAdapter* a, D3D_DRIVER_TYPE t, HMODULE sw, UINT fl, const D3D_FEATURE_LEVEL* lv, UINT n, UINT sdk,
+                                                  ID3D11Device** dev, D3D_FEATURE_LEVEL* got, ID3D11DeviceContext** ctx) {
+    HRESULT hr = real_CreateDevice11(a, t, sw, fl, lv, n, sdk, dev, got, ctx);
+    if (SUCCEEDED(hr)) device11_created(dev, ctx);
+    return hr;
+}
+extern "C" HRESULT WINAPI Proxy_D3D11CreateDeviceAndSwapChain(IDXGIAdapter* a, D3D_DRIVER_TYPE t, HMODULE sw, UINT fl, const D3D_FEATURE_LEVEL* lv, UINT n,
+                                                              UINT sdk, const DXGI_SWAP_CHAIN_DESC* sd, IDXGISwapChain** sc, ID3D11Device** dev,
+                                                              D3D_FEATURE_LEVEL* got, ID3D11DeviceContext** ctx) {
+    HRESULT hr = real_CreateDeviceSc11(a, t, sw, fl, lv, n, sdk, sd, sc, dev, got, ctx);
+    if (SUCCEEDED(hr)) {
+        device11_created(dev, ctx);
+        if (g_admission > 0 && sc) hook_swapchain(hr, *sc);   // the swap chain made inside the call: the frame hooks may not have seen its factory
+    }
+    return hr;
+}
+
 static std::wstring cfg(const wchar_t* env, const wchar_t* key, const wchar_t* def) {
     wchar_t v[64];
     if (GetEnvironmentVariableW(env, v, 64)) return v;
@@ -2824,29 +2994,40 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID reserved) {
     GetModuleFileNameW(self, p, MAX_PATH);
     g_dir = p;
     g_dir.resize(g_dir.find_last_of(L"\\/") + 1);
+    g_is11 = !_wcsicmp(wcsrchr(p, L'\\') ? wcsrchr(p, L'\\') + 1 : p, L"d3d11.dll");   // the file name this binary was installed under
     GetSystemDirectoryW(p, MAX_PATH);
-    g_real = LoadLibraryW((std::wstring(p) + L"\\d3d12.dll").c_str());
-    if (!g_real) return FALSE;
-    // next=<file name>: a mod's d3d12.dll renamed next to us (the app's "record alongside"); every export goes to it first.
-    // A bare file name only. If it doesn't load or has no D3D12CreateDevice, the system dll serves alone (the game still runs).
-    wchar_t next[64];
-    GetPrivateProfileStringW(L"scsfix", L"next", L"", next, 64, (g_dir + L"scsfix.ini").c_str());
+    wchar_t next[64] = L"";
     HMODULE mod = nullptr;
     const char* next_why = nullptr;
-    if (*next && (wcspbrk(next, L"\\/:") || wcsstr(next, L"..")))
-        next_why = "not a file name next to this dll";
-    else if (*next && !(mod = LoadLibraryW((g_dir + next).c_str())))
-        next_why = "failed to load";
-    else if (mod == self)  // its D3D12CreateDevice would call itself
-        next_why = "is this dll", mod = nullptr;
-    else if (mod && !GetProcAddress(mod, "D3D12CreateDevice"))
-        next_why = "has no D3D12CreateDevice", mod = nullptr;
-    auto res = [mod](const char* n) { void* f = mod ? (void*)GetProcAddress(mod, n) : nullptr; return f ? f : (void*)GetProcAddress(g_real, n); };
-#define RES(n) real_##n = res(#n);
-    REAL_EXPORTS(RES)
-#undef RES
-    real_Ordinal99 = (void*)GetProcAddress(g_real, MAKEINTRESOURCEA(99));  // ordinals are per dll: a mod's 99 is something else
-    real_CreateDevice = (PFN_CreateDevice)res("D3D12CreateDevice");
+    if (g_is11) {  // the D3D11 role: nothing of D3D12 is loaded, and next= is not read
+        g_real11 = LoadLibraryW((std::wstring(p) + L"\\d3d11.dll").c_str());
+        if (!g_real11) return FALSE;
+#define RES11(n) real_##n = (void*)GetProcAddress(g_real11, #n);
+        REAL11_EXPORTS(RES11)
+#undef RES11
+        real_CreateDevice11 = (PFN_CreateDevice11)GetProcAddress(g_real11, "D3D11CreateDevice");
+        real_CreateDeviceSc11 = (PFN_CreateDeviceSc11)GetProcAddress(g_real11, "D3D11CreateDeviceAndSwapChain");
+    } else {
+        g_real = LoadLibraryW((std::wstring(p) + L"\\d3d12.dll").c_str());
+        if (!g_real) return FALSE;
+        // next=<file name>: a mod's d3d12.dll renamed next to us (the app's "record alongside"); every export goes to it first.
+        // A bare file name only. If it doesn't load or has no D3D12CreateDevice, the system dll serves alone (the game still runs).
+        GetPrivateProfileStringW(L"scsfix", L"next", L"", next, 64, (g_dir + L"scsfix.ini").c_str());
+        if (*next && (wcspbrk(next, L"\\/:") || wcsstr(next, L"..")))
+            next_why = "not a file name next to this dll";
+        else if (*next && !(mod = LoadLibraryW((g_dir + next).c_str())))
+            next_why = "failed to load";
+        else if (mod == self)  // its D3D12CreateDevice would call itself
+            next_why = "is this dll", mod = nullptr;
+        else if (mod && !GetProcAddress(mod, "D3D12CreateDevice"))
+            next_why = "has no D3D12CreateDevice", mod = nullptr;
+        auto res = [mod](const char* n) { void* f = mod ? (void*)GetProcAddress(mod, n) : nullptr; return f ? f : (void*)GetProcAddress(g_real, n); };
+    #define RES(n) real_##n = res(#n);
+        REAL_EXPORTS(RES)
+    #undef RES
+        real_Ordinal99 = (void*)GetProcAddress(g_real, MAKEINTRESOURCEA(99));  // ordinals are per dll: a mod's 99 is something else
+        real_CreateDevice = (PFN_CreateDevice)res("D3D12CreateDevice");
+    }
     // Only scsfix_warm (and selftest) export SCSFix_WarmHost; its staged child runs under the game's exe name, so the
     // name can't tell. A game given mode=warm records instead.
     const bool warm_asked = cfg(L"SCSFIX_MODE", L"mode", L"record") == L"warm";
