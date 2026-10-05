@@ -136,7 +136,13 @@ public static class Updater
 
     const string OfflineRunning = "An offline session's game or cleanup is running. The update installs once it has ended.";
 
-    public static bool Installed { get; } = Manager(UpdateChannels.Stable, false).IsInstalled;
+    /// <summary>FORK: self-update is cut off. The feed and its signing keys are the original author's, so a check here
+    /// would replace this fork with upstream's build. With <see cref="Installed"/> false nothing starts the timer, checks,
+    /// downloads or applies (Start, ApplyAtStartAsync and CheckAsync return at once, so no download is ever "ready" and ApplyOnExitAsync and RestartAsync have nothing to apply) and
+    /// the About page hides "Check for updates". Updates of the fork are installed by hand.</summary>
+    public const bool SelfUpdateDisabled = true;
+
+    public static bool Installed { get; } = !SelfUpdateDisabled && Manager(UpdateChannels.Stable, false).IsInstalled;
 
     /// <summary>At app start (real data only): check soon and every hour. A package downloaded before isn't ready by itself:
     /// Velopack keeps the newest one whatever its channel, so only the chosen channel's feed makes it ready, when it offers
@@ -402,3 +408,4 @@ public static class Updater
         }
     }
 }
+
