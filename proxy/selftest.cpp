@@ -55,7 +55,7 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 
-extern "C" __declspec(dllexport) const int SCSKiller_WarmHost = 1;  // the proxy warms only in a process exporting it
+extern "C" __declspec(dllexport) const int SCSFix_WarmHost = 1;  // the proxy warms only in a process exporting it
 
 template <D3D12_PIPELINE_STATE_SUBOBJECT_TYPE T, class V> struct alignas(void*) Sub { D3D12_PIPELINE_STATE_SUBOBJECT_TYPE t; V v; };
 struct Stream {
@@ -123,12 +123,12 @@ template <class F> static bool read_rows(const std::wstring& path, std::vector<s
 // seed's), debugwarm (warmonly under the debug layer), dump (write the seed's shaders)
 static int child(const std::wstring& dir, const std::wstring& mode, unsigned seed) {
     bool warm = mode == L"warm" || mode == L"warmonly" || mode == L"debugwarm";
-    SetEnvironmentVariableW(L"SCSKILLER_MODE", warm ? L"warm" : L"record");
+    SetEnvironmentVariableW(L"SCSFIX_MODE", warm ? L"warm" : L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     CHECK(m);
     auto create_device = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
     auto serialize_rs = (decltype(&D3D12SerializeRootSignature))GetProcAddress(m, "D3D12SerializeRootSignature");  // via asm stub
-    auto stats = (void(WINAPI*)(uint64_t*))GetProcAddress(m, "SCSKiller_Stats");
+    auto stats = (void(WINAPI*)(uint64_t*))GetProcAddress(m, "SCSFix_Stats");
     CHECK(create_device && serialize_rs && stats);
 
     if (mode == L"debugwarm") {  // D3D12 debug layer: explains why the runtime rejects a replayed PSO
@@ -1092,7 +1092,7 @@ static bool dxc_compile(IDxcCompiler3* c, const std::string& src, std::string& o
 static int dxr_child(int proc, unsigned seed, const std::wstring& blobs, const std::wstring& out) {
     std::wstring self(MAX_PATH, L'\0');
     self.resize(GetModuleFileNameW(nullptr, self.data(), MAX_PATH));
-    // process 6 records: the proxy next to the exe (its mode from SCSKILLER_MODE / scskiller.ini); the probe: the real runtime
+    // process 6 records: the proxy next to the exe (its mode from SCSFIX_MODE / scsfix.ini); the probe: the real runtime
     HMODULE m = proc == 6 ? LoadLibraryW((self.substr(0, self.find_last_of(L'\\') + 1) + L"d3d12.dll").c_str()) : load_system(L"d3d12.dll");
     CHECK(m);
     auto create_device = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
@@ -1384,9 +1384,9 @@ static IDxcCompiler3* dxc_compiler() {
     return create && SUCCEEDED(create(CLSID_DxcCompiler, IID_PPV_ARGS(&comp))) ? comp : nullptr;
 }
 
-// Where the lock is: SCSKILLER_DEV_DIR (the lock is <dir>\gpu.lock), and the GPU is also busy while the file named by
-// SCSKILLER_GPU_BUSY_FILE exists. A development tree may set both defaults in selftest_team.h (not in the public
-// source); else the lock lives under %TEMP%\scskiller-test and nothing else marks the GPU busy. As the tests' TestEnv.
+// Where the lock is: SCSFIX_DEV_DIR (the lock is <dir>\gpu.lock), and the GPU is also busy while the file named by
+// SCSFIX_GPU_BUSY_FILE exists. A development tree may set both defaults in selftest_team.h (not in the public
+// source); else the lock lives under %TEMP%\scsfix-test and nothing else marks the GPU busy. As the tests' TestEnv.
 #if __has_include("selftest_team.h")
 #include "selftest_team.h"
 #endif
@@ -1402,18 +1402,18 @@ static std::wstring env_or(const wchar_t* name, std::wstring fallback) {
 static HANDLE g_gpu_lock;
 static std::wstring gpu_lock(const char* who) {
 #ifdef SCSK_TEAM_GPU_BUSY_FILE
-    std::wstring busy = env_or(L"SCSKILLER_GPU_BUSY_FILE", SCSK_TEAM_GPU_BUSY_FILE);
+    std::wstring busy = env_or(L"SCSFIX_GPU_BUSY_FILE", SCSK_TEAM_GPU_BUSY_FILE);
 #else
-    std::wstring busy = env_or(L"SCSKILLER_GPU_BUSY_FILE", L"");
+    std::wstring busy = env_or(L"SCSFIX_GPU_BUSY_FILE", L"");
 #endif
     if (!busy.empty() && GetFileAttributesW(busy.c_str()) != INVALID_FILE_ATTRIBUTES)
         return printf("GPU busy: %ls\n", busy.c_str()), L"";
     wchar_t tmp[MAX_PATH];
     GetTempPathW(MAX_PATH, tmp);
 #ifdef SCSK_TEAM_DEV_DIR
-    std::wstring lockdir = env_or(L"SCSKILLER_DEV_DIR", local_appdata() + SCSK_TEAM_DEV_DIR);
+    std::wstring lockdir = env_or(L"SCSFIX_DEV_DIR", local_appdata() + SCSK_TEAM_DEV_DIR);
 #else
-    std::wstring lockdir = env_or(L"SCSKILLER_DEV_DIR", std::wstring(tmp) + L"scskiller-test");
+    std::wstring lockdir = env_or(L"SCSFIX_DEV_DIR", std::wstring(tmp) + L"scsfix-test");
 #endif
     std::wstring lock = lockdir + L"\\gpu.lock";
     CreateDirectoryW(lockdir.c_str(), nullptr);
@@ -1472,8 +1472,8 @@ static int gpu_lock_rules() {
     RunDir run(tmp, L"scsk-lock");
     CHECK(!run.path.empty());
     std::wstring dev = run.path.substr(0, run.path.size() - 1), lock = dev + L"\\gpu.lock";
-    SetEnvironmentVariableW(L"SCSKILLER_DEV_DIR", dev.c_str());
-    SetEnvironmentVariableW(L"SCSKILLER_GPU_BUSY_FILE", (dev + L"\\none").c_str());
+    SetEnvironmentVariableW(L"SCSFIX_DEV_DIR", dev.c_str());
+    SetEnvironmentVariableW(L"SCSFIX_GPU_BUSY_FILE", (dev + L"\\none").c_str());
     HANDLE f = CreateFileW(lock.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, 0, nullptr);  // another tool's lock file
     CHECK(f != INVALID_HANDLE_VALUE);
     CloseHandle(f);
@@ -1493,7 +1493,7 @@ static int gpu_lock_rules() {
     CHECK(GetFileAttributesW(lock.c_str()) == INVALID_FILE_ATTRIBUTES);  // gone with its handle
     CHECK(gpu_lock("d") == lock);
     CloseHandle(g_gpu_lock);
-    SetEnvironmentVariableW(L"SCSKILLER_DEV_DIR", (dev + L"\\none\\sub").c_str());  // a folder that can't be made: no lock
+    SetEnvironmentVariableW(L"SCSFIX_DEV_DIR", (dev + L"\\none\\sub").c_str());  // a folder that can't be made: no lock
     CHECK(gpu_lock("e").empty());
     printf("gpulock OK\n");
     return 0;
@@ -1619,7 +1619,7 @@ static int vk_child(int proc, unsigned seed, const std::wstring& out) {
     CHECK(gipa);
     auto create_instance = (PFN_vkCreateInstance)gipa(nullptr, "vkCreateInstance");
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    app.pApplicationName = "scskiller selftest";
+    app.pApplicationName = "scsfix selftest";
     app.apiVersion = VK_API_VERSION_1_3;
     VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     ici.pApplicationInfo = &app;
@@ -2051,9 +2051,9 @@ static int layout_rules() {
 // `selftest so <seed>`: stream output pipelines created through the proxy d3d12.dll next to the exe (record mode), on WARP
 // (no GPU cache touched): a VS without SV_Position feeding only stream output (NO_RASTERIZED_STREAM) as a graphics desc and
 // as a stream. WARP also creates that desc without its declaration, so gen/test_so.py checks the replay by round trip
-// (SCSKILLER_WARM_ROUNDTRIP). Prints "warp-luid <hex>" (for scskiller_warm --adapter-luid) and one "<row> 0x<hr>" per create.
+// (SCSFIX_WARM_ROUNDTRIP). Prints "warp-luid <hex>" (for scsfix_warm --adapter-luid) and one "<row> 0x<hr>" per create.
 static int so_rows(const std::wstring& dir, unsigned seed) {
-    SetEnvironmentVariableW(L"SCSKILLER_MODE", L"record");
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     CHECK(m);
     auto create_device = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
@@ -2159,7 +2159,7 @@ static const NvRow kNvRows[] = {
 };
 
 static int nvext_child(int proc, unsigned seed, const std::wstring& dir, const std::wstring& out) {
-    if (proc == 3 || proc == 4) SetEnvironmentVariableW(L"SCSKILLER_MODE", proc == 4 ? L"warm" : L"record");
+    if (proc == 3 || proc == 4) SetEnvironmentVariableW(L"SCSFIX_MODE", proc == 4 ? L"warm" : L"record");
     HMODULE m = proc == 3 || proc == 4 ? LoadLibraryW((dir + L"d3d12.dll").c_str()) : load_system(L"d3d12.dll");
     CHECK(m);
     auto create_device = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
@@ -2169,8 +2169,8 @@ static int nvext_child(int proc, unsigned seed, const std::wstring& dir, const s
     FILE* f = _wfopen(out.c_str(), L"w");
     CHECK(f);
     if (proc == 4) {  // the warm replays the recording on this device, nothing else
-        auto start = (void(WINAPI*)(IUnknown*))GetProcAddress(m, "SCSKiller_StartWarm");
-        auto stats = (void(WINAPI*)(uint64_t*))GetProcAddress(m, "SCSKiller_Stats");
+        auto start = (void(WINAPI*)(IUnknown*))GetProcAddress(m, "SCSFix_StartWarm");
+        auto stats = (void(WINAPI*)(uint64_t*))GetProcAddress(m, "SCSFix_Stats");
         CHECK(start && stats);
         uint64_t st[7];
         start(dev), stats(st);
@@ -2297,7 +2297,7 @@ static bool process_running(const wchar_t* exe) {
 }
 
 static int nvext_parent(const std::wstring& a, const std::wstring& dir, int runs) {
-    if (process_running(L"scskiller_warm.exe")) return printf("GPU busy: scskiller_warm.exe is running\n"), 1;
+    if (process_running(L"scsfix_warm.exe")) return printf("GPU busy: scsfix_warm.exe is running\n"), 1;
     std::wstring lock = gpu_lock("selftest nvext");
     if (lock.empty()) return 1;
     std::wstring stamp = std::to_wstring(GetTickCount() % 1000000), w = dir + L"nvext\\", x = dir + L"scsknv" + stamp + L"x.exe",
@@ -2310,7 +2310,7 @@ static int nvext_parent(const std::wstring& a, const std::wstring& dir, int runs
     std::random_device rd;
     for (int run_i = 0; run_i < runs; ++run_i) {
         unsigned seed = 100000 + rd() % 8000000;
-        for (auto f : {L"scskiller.db", L"scskiller.log", L"scskiller_creates.csv"}) DeleteFileW((w + f).c_str());
+        for (auto f : {L"scsfix.db", L"scsfix.log", L"scsfix_creates.csv"}) DeleteFileW((w + f).c_str());
         for (int p = 1; p <= 5; ++p) {
             int rc = run(p <= 2 ? x : p == 3 ? r : y, L"nvextchild " + std::to_wstring(p) + L" " + std::to_wstring(seed) + L" \"" + out + L"\"");
             if (rc) printf("  p%d exited with %d\n", p, rc);
@@ -2321,7 +2321,7 @@ static int nvext_parent(const std::wstring& a, const std::wstring& dir, int runs
             if (!read) continue;
             if (p == 3) {  // what the recorder wrote: 'N' records per target tag
                 std::map<char, int> tags;
-                if (FILE* db = _wfopen((w + L"scskiller.db").c_str(), L"rb")) {
+                if (FILE* db = _wfopen((w + L"scsfix.db").c_str(), L"rb")) {
                     for (int tag; (tag = fgetc(db)) != EOF;) {
                         uint32_t n;
                         if (fread(&n, 4, 1, db) != 1) break;
@@ -2345,7 +2345,7 @@ static int nvext_parent(const std::wstring& a, const std::wstring& dir, int runs
 }
 
 // `selftest cacheprobe`: what does NVIDIA's DXCache keep of a PSO (root signature? shader bytes? hashes?)
-// Can SCSKiller learn a game's root signatures from the cache the game wrote, without the proxy? A throwaway exe name
+// Can SCSFix learn a game's root signatures from the cache the game wrote, without the proxy? A throwaway exe name
 // (scskcp<seed>.exe) creates PSOs with known, marked root signatures and shaders; the cache files it creates are copied
 // to <run folder>\cacheprobe\ after each process (the folder is kept). tools/cacheprobe.py searches them for the blobs.
 //   p1: RS A (v1.0) + RS B (v1.1); VS+PS and CS in DXBC (fxc) and, with dxcompiler, DXIL; each blob written to <out>.
@@ -2673,7 +2673,7 @@ static void nv_used_diff(const std::map<std::wstring, uint64_t>& a, const std::m
 }
 
 static int bindless_parent(const std::wstring& a, const std::wstring& dir, int runs, const std::wstring& name) {
-    if (process_running(L"scskiller_warm.exe")) return printf("GPU busy: scskiller_warm.exe is running\n"), 1;
+    if (process_running(L"scsfix_warm.exe")) return printf("GPU busy: scsfix_warm.exe is running\n"), 1;
     if (name.find_first_of(L"\\/:") != std::wstring::npos || name.find(L"..") != std::wstring::npos || name == L".")
         return printf("bindless: %ls is not a file name\n", name.c_str()), 1;
     std::wstring lock = gpu_lock("selftest bindless");
@@ -2768,11 +2768,11 @@ static bool modswap_arm(HMODULE mod, unsigned seed) {
 }
 
 // `selftest chain <seed> [swap]`: a compute PSO created through the proxy d3d12.dll next to the exe on WARP (no GPU cache), with
-// scskiller.ini's next= naming a mod's d3d12.dll (fakenext.dll renamed). Prints "next-calls <n>" (-1: that dll isn't loaded
-// or isn't fakenext) and "created 0x<hr>"; the proxy records the PSO in scskiller.db either way. swap: a VS + PS graphics
+// scsfix.ini's next= naming a mod's d3d12.dll (fakenext.dll renamed). Prints "next-calls <n>" (-1: that dll isn't loaded
+// or isn't fakenext) and "created 0x<hr>"; the proxy records the PSO in scsfix.db either way. swap: a VS + PS graphics
 // PSO instead, the mod replacing its PS (fakenext's wrapper device): the proxy records the game's and the modded desc.
 static int chain_rows(const std::wstring& dir, unsigned seed, bool swap) {
-    SetEnvironmentVariableW(L"SCSKILLER_MODE", L"record");
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     CHECK(m);
     auto create_device = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
@@ -2781,7 +2781,7 @@ static int chain_rows(const std::wstring& dir, unsigned seed, bool swap) {
     IDXGIAdapter* warp = nullptr;
     CHECK(create_device && ser && SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
     wchar_t next[64];
-    GetPrivateProfileStringW(L"scskiller", L"next", L"", next, 64, (dir + L"scskiller.ini").c_str());
+    GetPrivateProfileStringW(L"scsfix", L"next", L"", next, 64, (dir + L"scsfix.ini").c_str());
     HMODULE mod = *next ? GetModuleHandleW((dir + next).c_str()) : nullptr;
     CHECK(!swap || modswap_arm(mod, seed));
     ID3D12Device* dev = nullptr;
@@ -2815,7 +2815,7 @@ static int chain_rows(const std::wstring& dir, unsigned seed, bool swap) {
 // own, as a bind-time clone is). old: the wrapper doesn't answer IID_UnwrappedObject (ReShade before 6.8, other layers).
 // Prints "created 0x<hr>" and "own 0x<hr>".
 static int layer_rows(const std::wstring& dir, unsigned seed, bool old) {
-    SetEnvironmentVariableW(L"SCSKILLER_MODE", L"record");
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE fake = LoadLibraryW((dir + L"fakenext.dll").c_str());
     auto layer = fake ? (BOOL(WINAPI*)(BOOL))GetProcAddress(fake, "FakeNext_Layer") : nullptr;
     CHECK(layer && layer(!old));
@@ -2853,7 +2853,7 @@ static int layer_rows(const std::wstring& dir, unsigned seed, bool old) {
 // signature (the kit: dxgi.dll, *.addon64 and ReShade.ini from reshade.me and RenoDX's releases, never in the repo). Each
 // phase runs this exe under its own throwaway name in its own folder, with the proxy and the kit: A records n compute PSOs
 // the game creates through the layer and n the layer creates on the device under it (as bind-time clones are, "own");
-// B is warmed by scskiller_warm from A's recording, C from it without what the layer changed (what the proxy recorded
+// B is warmed by scsfix_warm from A's recording, C from it without what the layer changed (what the proxy recorded
 // before it hooked under a layer), E like C but with the layer in the warm (--layer), F like B with it, D not at all; then
 // each creates the same PSOs under the layer. Prints each one's create ms (median, max). The driver-cache files that
 // appeared during the run are deleted at the end.
@@ -2915,7 +2915,7 @@ static int layerwarm_child(const std::wstring& dir, unsigned seed, int n) {
 
 static int layerwarm_phases(const std::wstring& dir, const std::wstring& kit, const std::wstring& run_dir, unsigned seed, int n, const std::function<int(wchar_t)>& create) {
     if (int r = create(L'A')) return r;
-    std::string db = read_all(run_dir + L"A\\scskiller.db");
+    std::string db = read_all(run_dir + L"A\\scsfix.db");
     // A's records: what the layer changed is the 'C' records the 'W' records name first
     std::set<Hash20> changed;
     std::vector<std::pair<char, std::string>> recs;
@@ -2933,7 +2933,7 @@ static int layerwarm_phases(const std::wstring& dir, const std::wstring& kit, co
     for (wchar_t p : {L'B', L'C', L'E', L'F'}) {
         std::wstring work = run_dir + L"warm" + p + L"\\";
         CreateDirectoryW(work.c_str(), nullptr);
-        FILE* f = _wfopen((work + L"scskiller.db").c_str(), L"wb");
+        FILE* f = _wfopen((work + L"scsfix.db").c_str(), L"wb");
         CHECK(f);
         for (auto& [tag, pl] : recs)
             if (p == L'B' || p == L'F' || (tag != 'W' && !changed.count(sha1_of(tag, pl)))) {
@@ -2942,7 +2942,7 @@ static int layerwarm_phases(const std::wstring& dir, const std::wstring& kit, co
             }
         fclose(f);
         std::wstring layer = p == L'E' || p == L'F' ? L" --layer \"" + kit + L"\"" : L"";
-        if (int r = run(dir + L"scskiller_warm.exe", L"\"" + work + L".\" scsklw" + std::to_wstring(seed) + p + L".exe --threads 4" + layer)) return r;
+        if (int r = run(dir + L"scsfix_warm.exe", L"\"" + work + L".\" scsklw" + std::to_wstring(seed) + p + L".exe --threads 4" + layer)) return r;
     }
     for (wchar_t p : {L'B', L'C', L'E', L'F', L'D'})
         if (int r = create(p)) return r;
@@ -2968,7 +2968,7 @@ static int layerwarm_parent(const std::wstring& a, const std::wstring& dir, cons
         CreateDirectoryW(d.c_str(), nullptr);
         CopyFileW(a.c_str(), exe.c_str(), FALSE), CopyFileW((dir + L"d3d12.dll").c_str(), (d + L"d3d12.dll").c_str(), FALSE);
         for (auto& f : kit_files) CopyFileW(f.c_str(), (d + f.filename().wstring()).c_str(), FALSE);
-        if (FILE* ini = _wfopen((d + L"scskiller.ini").c_str(), L"w")) fputs("[scskiller]\nmode=record\n", ini), fclose(ini);
+        if (FILE* ini = _wfopen((d + L"scsfix.ini").c_str(), L"w")) fputs("[scsfix]\nmode=record\n", ini), fclose(ini);
         printf("%lc: ", p);
         return run(exe, L"layerwarmchild " + std::to_wstring(seed) + L" " + std::to_wstring(n));
     };
@@ -3034,7 +3034,7 @@ static int dxcfill(long long count, int unroll, unsigned seed, int hold) {
 // frame) and one Present that the overlay turns into a nested Present1: 2n + 1 frames. Then a
 // second overlay hooks them after the proxy did, and a second swap chain on the same vtable presents once with each: 2
 // more frames, through both overlays. Then a compute PSO on this thread and one on another (the csv's presents column: 1,
-// then 0). Prints "overlay <calls>", "late <calls>" (the second overlay's) and "frames <n>" (scskiller_frames.bin's frames
+// then 0). Prints "overlay <calls>", "late <calls>" (the second overlay's) and "frames <n>" (scsfix_frames.bin's frames
 // after its last launch record, -1 = no file).
 static std::atomic<int> g_overlay, g_late;
 static void* g_ov_present;
@@ -3068,7 +3068,7 @@ static HRESULT STDMETHODCALLTYPE ov_present1(IDXGISwapChain1* sc, UINT sync, UIN
 }
 
 static int frames_rows(const std::wstring& dir, int n) {
-    SetEnvironmentVariableW(L"SCSKILLER_MODE", L"record");
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     wchar_t sys[MAX_PATH];
     GetSystemDirectoryW(sys, MAX_PATH);
@@ -3080,7 +3080,7 @@ static int frames_rows(const std::wstring& dir, int n) {
     IDXGIAdapter* warp = nullptr;
     CHECK(proxy_create && real_create && SUCCEEDED(CreateDXGIFactory2(0, IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
     auto chain = [&](ID3D12Device* dev, IDXGISwapChain1** sc) {
-        HWND wnd = CreateWindowExW(0, L"STATIC", L"scskiller frames", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, nullptr, nullptr, nullptr, nullptr);
+        HWND wnd = CreateWindowExW(0, L"STATIC", L"scsfix frames", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, nullptr, nullptr, nullptr, nullptr);
         D3D12_COMMAND_QUEUE_DESC qd = {};
         ID3D12CommandQueue* q = nullptr;
         DXGI_SWAP_CHAIN_DESC1 d = {64, 64, DXGI_FORMAT_R8G8B8A8_UNORM, FALSE, {1, 0}, DXGI_USAGE_RENDER_TARGET_OUTPUT, 2};
@@ -3132,7 +3132,7 @@ static int frames_rows(const std::wstring& dir, int n) {
     std::thread(pso, 2).join();
     Sleep(2500);  // the proxy writes the frames once a second
     printf("overlay %d\nlate %d\n", g_overlay.load(), g_late.load());
-    FILE* fr = _wfopen((dir + L"scskiller_frames.bin").c_str(), L"rb");
+    FILE* fr = _wfopen((dir + L"scsfix_frames.bin").c_str(), L"rb");
     long frames = -1;
     for (uint32_t r; fr && fread(&r, 4, 1, fr) == 1;) {
         uint64_t head[4];
@@ -3144,11 +3144,11 @@ static int frames_rows(const std::wstring& dir, int n) {
     return 0;
 }
 
-// `selftest framesheld`: presents on WARP through the proxy while scskiller_frames.bin is held open by another handle, so
+// `selftest framesheld`: presents on WARP through the proxy while scsfix_frames.bin is held open by another handle, so
 // the proxy's first writes of it fail, then one present after it is let go. Prints "drift_us <n>": how far that frame's
 // time in the file is from its QueryPerformanceCounter, from the file's launch record (frames lost, never time).
 static int frames_held(const std::wstring& dir) {
-    SetEnvironmentVariableW(L"SCSKILLER_MODE", L"record");
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     CHECK(m);
     auto proxy_create = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
@@ -3157,9 +3157,9 @@ static int frames_held(const std::wstring& dir) {
     CHECK(proxy_create && SUCCEEDED(CreateDXGIFactory2(0, IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
     ID3D12Device* dev = nullptr;
     CHECK(SUCCEEDED(proxy_create(warp, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev))));
-    HANDLE held = CreateFileW((dir + L"scskiller_frames.bin").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE held = CreateFileW((dir + L"scsfix_frames.bin").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     CHECK(held != INVALID_HANDLE_VALUE);
-    HWND wnd = CreateWindowExW(0, L"STATIC", L"scskiller frames", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, nullptr, nullptr, nullptr, nullptr);
+    HWND wnd = CreateWindowExW(0, L"STATIC", L"scsfix frames", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, nullptr, nullptr, nullptr, nullptr);
     D3D12_COMMAND_QUEUE_DESC qd = {};
     ID3D12CommandQueue* q = nullptr;
     DXGI_SWAP_CHAIN_DESC1 d = {64, 64, DXGI_FORMAT_R8G8B8A8_UNORM, FALSE, {1, 0}, DXGI_USAGE_RENDER_TARGET_OUTPUT, 2};
@@ -3173,7 +3173,7 @@ static int frames_held(const std::wstring& dir) {
     LARGE_INTEGER at;
     QueryPerformanceCounter(&at);
     Sleep(2500);
-    FILE* fr = _wfopen((dir + L"scskiller_frames.bin").c_str(), L"rb");
+    FILE* fr = _wfopen((dir + L"scsfix_frames.bin").c_str(), L"rb");
     CHECK(fr);
     uint64_t head[4] = {}, us = 0, last = 0;
     for (uint32_t r; fread(&r, 4, 1, fr) == 1;)
@@ -3202,7 +3202,7 @@ static HRESULT compute_pso(ID3D12Device* dev, ID3D12RootSignature* rs, int k) {
 // "created 0x<hr> 0x<hr>". The proxy decided admission at the device: a client loaded after it doesn't change the run.
 // "+<client dll>": the client is loaded before the device instead.
 static int anticheat_rows(const std::wstring& dir, const wchar_t* client) {
-    SetEnvironmentVariableW(L"SCSKILLER_MODE", L"record");
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     const bool early = *client == L'+';
     if (early) CHECK(LoadLibraryW(client + 1));
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
@@ -3261,7 +3261,7 @@ static int factory_rejected_rows(const std::wstring& dir) {
 // client dll, it is loaded (an anti-cheat client's module name) just before the device. Prints "loaded <0|1>" and
 // "created 0x<hr>", or "no factory" where the runtime has none.
 static int factory_rows(const std::wstring& dir, const wchar_t* client = nullptr) {
-    SetEnvironmentVariableW(L"SCSKILLER_MODE", L"record");
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     CHECK(m);
     auto get_interface = (decltype(&D3D12GetInterface))GetProcAddress(m, "D3D12GetInterface");
@@ -3295,7 +3295,7 @@ static int factory_rows(const std::wstring& dir, const wchar_t* client = nullptr
 // probing for D3D12). Prints "loaded <0|1>" (the proxy is still loaded: its hooks are in the runtime's vtables) and
 // "created 0x<hr>" for a root signature on a device from the system dll, which runs the proxy's hook.
 static int unload_rows(const std::wstring& dir) {
-    SetEnvironmentVariableW(L"SCSKILLER_MODE", L"record");
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str()), real = load_system(L"d3d12.dll");
     CHECK(m && real);
     auto proxy_create = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
@@ -3321,39 +3321,39 @@ static int unload_rows(const std::wstring& dir) {
     return SUCCEEDED(hr) ? 0 : 1;
 }
 
-// The app's attestation for this exe, as ScsKiller.WriteAttestation writes it: scskiller.armed here (its nonce kept when it
+// The app's attestation for this exe, as ScsFix.WriteAttestation writes it: scsfix.armed here (its nonce kept when it
 // has one, so copies of this exe running from the same folder share it) and the ledger entry
-// %LOCALAPPDATA%\SCSKiller\armed\<SHA-1 of the exe's path, UTF-16LE, A-Z lowered>, removed when this process exits.
+// %LOCALAPPDATA%\SCSFix\armed\<SHA-1 of the exe's path, UTF-16LE, A-Z lowered>, removed when this process exits.
 static std::wstring g_ledger;
 static void arm_self(const std::wstring& dir, std::wstring exe) {
     WIN32_FILE_ATTRIBUTE_DATA self;
     if (!GetFileAttributesExW(exe.c_str(), GetFileExInfoStandard, &self)) return;
-    const std::wstring armed = dir + L"scskiller.armed";
+    const std::wstring armed = dir + L"scsfix.armed";
     wchar_t nonce[64] = {};
-    if (GetPrivateProfileStringW(L"scskiller", L"nonce", L"", nonce, 64, armed.c_str()) != 32) {
+    if (GetPrivateProfileStringW(L"scsfix", L"nonce", L"", nonce, 64, armed.c_str()) != 32) {
         std::random_device rd;
         for (int i = 0; i < 32; ++i) nonce[i] = L"0123456789abcdef"[rd() & 15];
         nonce[32] = 0;
     }
-    WritePrivateProfileStringW(L"scskiller", L"armed", L"1", armed.c_str());
-    WritePrivateProfileStringW(L"scskiller", L"checked", L"selftest", armed.c_str());
-    WritePrivateProfileStringW(L"scskiller", L"nonce", nonce, armed.c_str());
-    WritePrivateProfileStringW(L"scskiller", L"exe_size", std::to_wstring((uint64_t)self.nFileSizeHigh << 32 | self.nFileSizeLow).c_str(), armed.c_str());
-    WritePrivateProfileStringW(L"scskiller", L"exe_time", std::to_wstring((uint64_t)self.ftLastWriteTime.dwHighDateTime << 32 | self.ftLastWriteTime.dwLowDateTime).c_str(), armed.c_str());
+    WritePrivateProfileStringW(L"scsfix", L"armed", L"1", armed.c_str());
+    WritePrivateProfileStringW(L"scsfix", L"checked", L"selftest", armed.c_str());
+    WritePrivateProfileStringW(L"scsfix", L"nonce", nonce, armed.c_str());
+    WritePrivateProfileStringW(L"scsfix", L"exe_size", std::to_wstring((uint64_t)self.nFileSizeHigh << 32 | self.nFileSizeLow).c_str(), armed.c_str());
+    WritePrivateProfileStringW(L"scsfix", L"exe_time", std::to_wstring((uint64_t)self.ftLastWriteTime.dwHighDateTime << 32 | self.ftLastWriteTime.dwLowDateTime).c_str(), armed.c_str());
     for (auto& c : exe)
         if (c >= L'A' && c <= L'Z') c += L'a' - L'A';
     uint8_t h[20];
     PWSTR local = nullptr;
     if (BCryptHash(BCRYPT_SHA1_ALG_HANDLE, nullptr, 0, (PUCHAR)exe.data(), (ULONG)(exe.size() * sizeof(wchar_t)), h, 20) || FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local)))
         return CoTaskMemFree(local);
-    std::wstring ledger = std::wstring(local) + L"\\SCSKiller";
+    std::wstring ledger = std::wstring(local) + L"\\SCSFix";
     CoTaskMemFree(local);
     CreateDirectoryW(ledger.c_str(), nullptr);
     CreateDirectoryW((ledger += L"\\armed").c_str(), nullptr);
     wchar_t hex[41] = {};
     for (int i = 0; i < 20; ++i) swprintf(hex + 2 * i, 3, L"%02x", h[i]);
     g_ledger = ledger + L"\\" + hex;
-    WritePrivateProfileStringW(L"scskiller", L"nonce", nonce, g_ledger.c_str());
+    WritePrivateProfileStringW(L"scsfix", L"nonce", nonce, g_ledger.c_str());
     atexit([] { DeleteFileW(g_ledger.c_str()); });
 }
 
@@ -3361,9 +3361,9 @@ int wmain(int argc, wchar_t** argv) {
     wchar_t p[MAX_PATH];
     GetModuleFileNameW(nullptr, p, MAX_PATH);
     std::wstring a = p, dir = a.substr(0, a.find_last_of(L'\\') + 1);
-    // The proxy records only under the app's attestation (ScsKiller.ArmedFile); here the selftest is the app. Kept when
-    // there already, none with SCSKILLER_SELFTEST_UNARMED set.
-    if (!GetEnvironmentVariableW(L"SCSKILLER_SELFTEST_UNARMED", nullptr, 0)) arm_self(dir, a);
+    // The proxy records only under the app's attestation (ScsFix.ArmedFile); here the selftest is the app. Kept when
+    // there already, none with SCSFIX_SELFTEST_UNARMED set.
+    if (!GetEnvironmentVariableW(L"SCSFIX_SELFTEST_UNARMED", nullptr, 0)) arm_self(dir, a);
     if (argc > 1 && !wcscmp(argv[1], L"layoutrules")) return layout_rules();
     if (argc > 2 && !wcscmp(argv[1], L"so")) return so_rows(dir, (unsigned)_wtoi(argv[2]));
     if (argc > 2 && !wcscmp(argv[1], L"frames")) return frames_rows(dir, _wtoi(argv[2]));
@@ -3376,7 +3376,7 @@ int wmain(int argc, wchar_t** argv) {
     if (argc > 2 && !wcscmp(argv[1], L"layer")) return layer_rows(dir, (unsigned)_wtoi(argv[2]), argc > 3 && !wcscmp(argv[3], L"old"));
     if (argc > 2 && !wcscmp(argv[1], L"layerwarm")) return layerwarm_parent(a, dir, argv[2], argc > 3 ? std::max(1, _wtoi(argv[3])) : 24);
     if (argc > 3 && !wcscmp(argv[1], L"layerwarmchild")) return layerwarm_child(dir, (unsigned)_wtoi(argv[2]), _wtoi(argv[3]));
-    if (argc > 1 && !wcscmp(argv[1], L"warpluid")) {  // for scskiller_warm --adapter-luid: WARP (the runtime's checks, no GPU cache)
+    if (argc > 1 && !wcscmp(argv[1], L"warpluid")) {  // for scsfix_warm --adapter-luid: WARP (the runtime's checks, no GPU cache)
         IDXGIFactory4* f = nullptr;
         IDXGIAdapter* w = nullptr;
         DXGI_ADAPTER_DESC d;

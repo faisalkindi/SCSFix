@@ -19,14 +19,14 @@ EXPORTS
     D3D12SerializeRootSignature = stub_D3D12SerializeRootSignature @115
     D3D12SerializeVersionedRootSignature = stub_D3D12SerializeVersionedRootSignature @116
     GetBehaviorValue = stub_GetBehaviorValue         @117
-    SCSKiller_Stats                                  @200
-    SCSKiller_StartWarm                              @201
-    SCSKiller_WarmOptions                            @202
-    SCSKiller_Progress                               @203
-    SCSKiller_Control                                @204
-    SCSKiller_WarmRt                                 @205
-    SCSKiller_Retry                                  @206
-    SCSKiller_WarmMemory                             @207
-    SCSKiller_WarmCrash                              @208
-    SCSKiller_Crashes                                @209
-    SCSKiller_WarmPass                               @210
+    SCSFix_Stats                                  @200
+    SCSFix_StartWarm                              @201
+    SCSFix_WarmOptions                            @202
+    SCSFix_Progress                               @203
+    SCSFix_Control                                @204
+    SCSFix_WarmRt                                 @205
+    SCSFix_Retry                                  @206
+    SCSFix_WarmMemory                             @207
+    SCSFix_WarmCrash                              @208
+    SCSFix_Crashes                                @209
+    SCSFix_WarmPass                               @210

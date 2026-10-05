@@ -1,0 +1,12 @@
+﻿<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SCSFix.App/SCSFix.App.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="src/SCSFix.Cli/SCSFix.Cli.csproj" />
+    <Project Path="src/SCSFix.Core/SCSFix.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SCSFix.Tests/SCSFix.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -100,12 +100,12 @@ jobs:
         run: cmake -S proxy -B proxy/build -A x64 && cmake --build proxy/build --config Release -- /m
 
       - name: Build
-        run: dotnet build SCSKiller.slnx -c Release
+        run: dotnet build SCSFix.slnx -c Release
 
       # Tests that need installed games/recordings or a real GPU carry [Trait("Needs", "Game"|"Gpu")]; the rest must
       # pass on a machine with neither. The proxy is built, so the WARP selftest (RuntimeLayoutRules) runs.
       - name: Test
-        run: dotnet test tests/SCSKiller.Tests -c Release --no-build --filter "Needs!=Gpu&Needs!=Game"
+        run: dotnet test tests/SCSFix.Tests -c Release --no-build --filter "Needs!=Gpu&Needs!=Game"
 
       # No Oodle DLL in anything that leaves the build (THIRD-PARTY-NOTICES.md); the app downloads it on first use.
       # Nothing is signed here: build/release.ps1 signs these exact bytes after checking them against the sums.
@@ -126,9 +126,9 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
         if: ${{ !github.event.repository.private || github.ref_type == 'tag' }}   # private: storage is billed, only release tags need it
         with:
-          name: SCSKiller-unsigned
+          name: SCSFix-unsigned
           path: |
-            dist/SCSKiller.zip
+            dist/SCSFix.zip
             dist/SHA256SUMS-unsigned.txt
           compression-level: 0    # the zip is already compressed
           retention-days: 7       # artifact storage is billed on private repos

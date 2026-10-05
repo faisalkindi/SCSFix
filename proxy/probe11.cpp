@@ -1,4 +1,4 @@
-// D3D11 driver-shader-cache measurement probe. No SCSKiller shim involved: talks to the system
+// D3D11 driver-shader-cache measurement probe. No SCSFix shim involved: talks to the system
 // d3d11.dll directly to see what the driver caches on its own.
 //
 // Child modes:
@@ -16,7 +16,7 @@
 //   compile <file.hlsl> <target> <out.bin> - D3DCompile a file ("main"), write the bytecode (gen/test_warm11.py).
 //   first <vs.bin> <ps.bin> - time the first draw of given bytecode (a VS with POSITION float3 + TEXCOORD0 float2
 //                       inputs, a PS with up to 4 textures, 1 sampler, 1 float4 cbuffer). ~17 ms cold, ~1 ms when
-//                       the driver cache already holds both (gen/test_warm11.py: warmed by scskiller_warm).
+//                       the driver cache already holds both (gen/test_warm11.py: warmed by scsfix_warm).
 //   firsttess <vs.bin> <hs.bin> <ds.bin> <ps.bin> - the same draw through a hull and a domain shader (3-point patches).
 // No args: orchestrator. Runs the child under itself and copies of itself (same/other exe name,
 // same/other folder), 3x with fresh seeds each, and prints medians.
@@ -198,7 +198,7 @@ static Common make_common(ID3D11Device* dev) {
     dev->CreateBuffer(&cbd, &cbi, &c.cb);
     return c;
 }
-// scskiller_warm's default adapter: the hardware one with the most dedicated VRAM
+// scsfix_warm's default adapter: the hardware one with the most dedicated VRAM
 static ID3D11Device* make_device(ID3D11DeviceContext** ctx) {
     IDXGIFactory1* f = nullptr;
     IDXGIAdapter1 *best = nullptr, *a;

@@ -1,9 +1,9 @@
-// scskiller_warm: fill a game's driver shader cache from outside the game, no injection.
+// scsfix_warm: fill a game's driver shader cache from outside the game, no injection.
 // NVIDIA keys its D3D12 cache on the exe *file name* (measured: folder, file contents and D3D12 runtime version don't
-// matter), so a copy of this exe named like the game, replaying the game's scskiller.db + scskiller_gen.db, warms it.
+// matter), so a copy of this exe named like the game, replaying the game's scsfix.db + scsfix_gen.db, warms it.
 // Its D3D11 cache is keyed the same way: the gen db's D3D11 items are drawn once each on a D3D11 device (warm11.cpp).
 //
-//   scskiller_warm <workdir> <game exe file name> [--threads N] [--priority below|idle] [--start N]
+//   scsfix_warm <workdir> <game exe file name> [--threads N] [--priority below|idle] [--start N]
 //                  [--stop-event <name>] [--adapter-luid <hex>] [--rt-threads N] [--skip i,j,...]
 //                  [--memory-mb N] [--package <app user model id>] [--stage-path <install folder>\<dir>\<exe>]
 //                  [--skip-keys <sha1 hex>,...] [--isolate i,j,...]
@@ -18,7 +18,7 @@
 // folder>\<that path>, since some AMD app profiles match the tail of the launched path, not just the name; afterwards the
 // proxy's outputs are moved up to the staging folder and the rest of that tree is removed. --ags: the child creates its
 // device through that AGS 6 DLL, registering the game's app and engine names, since AMD keys the cache of such a device
-// on the app name; if that fails it says why on stderr and creates a plain device. --pass K: <workdir>\scskiller_pass.bin
+// on the app name; if that fails it says why on stderr and creates a plain device. --pass K: <workdir>\scsfix_pass.bin
 // holds each item's pass (one byte per item); only pass K's items are created, the others count as done.
 #define NOMINMAX
 #include <windows.h>
@@ -37,7 +37,7 @@
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "ole32.lib")
 
-extern "C" __declspec(dllexport) const int SCSKiller_WarmHost = 1;  // the proxy warms only in a process exporting it
+extern "C" __declspec(dllexport) const int SCSFix_WarmHost = 1;  // the proxy warms only in a process exporting it
 
 // What Invoke-CommandInDesktopPackage uses (Microsoft.Windows.Appx.PackageManager.Commands.dll).
 struct __declspec(uuid("F158268A-D5A5-45CE-99CF-00D6C3F3FC0A")) IDesktopAppXActivator : IUnknown {
@@ -49,12 +49,12 @@ struct __declspec(uuid("F158268A-D5A5-45CE-99CF-00D6C3F3FC0A")) IDesktopAppXActi
 };
 static const CLSID CLSID_DesktopAppXActivator = {0x168EB462, 0x775F, 0x42AE, {0x91, 0x11, 0xD7, 0x14, 0xB2, 0x30, 0x6C, 0x2E}};
 
-static std::wstring beat_name(DWORD parent) { return L"Local\\SCSKiller.Beat." + std::to_wstring(parent); }
-static std::wstring final_name(DWORD parent) { return L"Local\\SCSKiller.Final." + std::to_wstring(parent); }
-static std::wstring started_name(DWORD parent) { return L"Local\\SCSKiller.Started." + std::to_wstring(parent); }
-static std::wstring pipe_name(DWORD parent, int fd) { return L"\\\\.\\pipe\\SCSKiller.Warm." + std::to_wstring(parent) + L"." + std::to_wstring(fd); }
+static std::wstring beat_name(DWORD parent) { return L"Local\\SCSFix.Beat." + std::to_wstring(parent); }
+static std::wstring final_name(DWORD parent) { return L"Local\\SCSFix.Final." + std::to_wstring(parent); }
+static std::wstring started_name(DWORD parent) { return L"Local\\SCSFix.Started." + std::to_wstring(parent); }
+static std::wstring pipe_name(DWORD parent, int fd) { return L"\\\\.\\pipe\\SCSFix.Warm." + std::to_wstring(parent) + L"." + std::to_wstring(fd); }
 
-enum { RUN, PAUSE, STOP };  // SCSKiller_Control states (proxy.cpp)
+enum { RUN, PAUSE, STOP };  // SCSFix_Control states (proxy.cpp)
 
 struct Opts {
     int threads = 0;
@@ -178,32 +178,32 @@ static int child(DWORD parent_pid, const Opts& o) {
     GetModuleFileNameW(nullptr, self, MAX_PATH);
     std::wstring dir = self, exe = dir.substr(dir.find_last_of(L'\\') + 1);
     dir.resize(dir.size() - exe.size());
-    SetEnvironmentVariableW(L"SCSKILLER_MODE", L"warm");
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"warm");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     auto proc = [m](const char* n) { return m ? (void*)GetProcAddress(m, n) : nullptr; };
     auto create_device = (decltype(&D3D12CreateDevice))proc("D3D12CreateDevice");
-    auto options = (void(WINAPI*)(int, BOOL, uint64_t))proc("SCSKiller_WarmOptions");
-    auto start = (void(WINAPI*)(IUnknown*))proc("SCSKiller_StartWarm");
-    auto progress = (void(WINAPI*)(uint64_t*))proc("SCSKiller_Progress");
-    auto control = (void(WINAPI*)(int))proc("SCSKiller_Control");
-    auto warm_rt = (void(WINAPI*)(int, const uint64_t*, uint32_t))proc("SCSKiller_WarmRt");
-    auto retry = (void(WINAPI*)(uint64_t*))proc("SCSKiller_Retry");
-    auto memory = (void(WINAPI*)(uint32_t))proc("SCSKiller_WarmMemory");
-    auto warm_crash = (void(WINAPI*)(const uint8_t*, uint32_t, const uint64_t*, uint32_t))proc("SCSKiller_WarmCrash");
-    auto crashes = (BOOL(WINAPI*)(const char**, const char**))proc("SCSKiller_Crashes");
-    auto warm_pass = (void(WINAPI*)(const uint8_t*, uint64_t, uint32_t))proc("SCSKiller_WarmPass");
+    auto options = (void(WINAPI*)(int, BOOL, uint64_t))proc("SCSFix_WarmOptions");
+    auto start = (void(WINAPI*)(IUnknown*))proc("SCSFix_StartWarm");
+    auto progress = (void(WINAPI*)(uint64_t*))proc("SCSFix_Progress");
+    auto control = (void(WINAPI*)(int))proc("SCSFix_Control");
+    auto warm_rt = (void(WINAPI*)(int, const uint64_t*, uint32_t))proc("SCSFix_WarmRt");
+    auto retry = (void(WINAPI*)(uint64_t*))proc("SCSFix_Retry");
+    auto memory = (void(WINAPI*)(uint32_t))proc("SCSFix_WarmMemory");
+    auto warm_crash = (void(WINAPI*)(const uint8_t*, uint32_t, const uint64_t*, uint32_t))proc("SCSFix_WarmCrash");
+    auto crashes = (BOOL(WINAPI*)(const char**, const char**))proc("SCSFix_Crashes");
+    auto warm_pass = (void(WINAPI*)(const uint8_t*, uint64_t, uint32_t))proc("SCSFix_WarmPass");
     if (!create_device || !options || !start || !progress || !control || !warm_rt || !retry || !memory || !warm_crash || !crashes || (o.pass >= 0 && !warm_pass))
         return fail(L"proxy d3d12.dll missing or too old");
     std::vector<uint8_t> pass_of;
     if (o.pass >= 0) {
-        HANDLE pf = CreateFileW((dir + L"scskiller_pass.bin").c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+        HANDLE pf = CreateFileW((dir + L"scsfix_pass.bin").c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
         LARGE_INTEGER size{};
         DWORD got = 0;
         bool read = pf != INVALID_HANDLE_VALUE && GetFileSizeEx(pf, &size) && size.QuadPart < (1ll << 31);
         if (read) pass_of.resize((size_t)size.QuadPart);
         read = read && (pass_of.empty() || (ReadFile(pf, pass_of.data(), (DWORD)pass_of.size(), &got, nullptr) && got == pass_of.size()));
         if (pf != INVALID_HANDLE_VALUE) CloseHandle(pf);
-        if (!read) return fail(L"--pass: scskiller_pass.bin not readable");
+        if (!read) return fail(L"--pass: scsfix_pass.bin not readable");
     }
 
     // The game renders on the discrete GPU: default to the adapter with the most dedicated VRAM.
@@ -231,7 +231,7 @@ static int child(DWORD parent_pid, const Opts& o) {
     uint64_t p[4];  // done, total, failed, finished
     progress(p);
     if (o.pass >= 0 && pass_of.size() != p[1])
-        return fail(L"scskiller_pass.bin has " + std::to_wstring(pass_of.size()) + L" items, the dbs " + std::to_wstring(p[1]));
+        return fail(L"scsfix_pass.bin has " + std::to_wstring(pass_of.size()) + L" items, the dbs " + std::to_wstring(p[1]));
     if (o.pass >= 0) warm_pass(pass_of.data(), pass_of.size(), (uint32_t)o.pass);
     const uint64_t first = p[0];
     emit("{\"event\":\"start\",\"total\":%llu,\"adapter\":%s,\"exe\":%s}", p[1], json(bd.Description).c_str(), json(exe).c_str());
@@ -266,7 +266,7 @@ static int child(DWORD parent_pid, const Opts& o) {
         if (final_event) SetEvent(final_event);
         return 3;
     }
-    if (p[0] < p[1] && !stopping) return fail(L"replay aborted after repeated faults, see stage\\scskiller.log");
+    if (p[0] < p[1] && !stopping) return fail(L"replay aborted after repeated faults, see stage\\scsfix.log");
     // stopped poisoned: items after the first unfinished one may be done, so it resumes from that one, not from the count
     const uint64_t done = r[0] ? r[1] : p[0], failed = r[0] ? r[3] : p[2];
     emit("{\"event\":\"done\",\"done\":%llu,\"total\":%llu,\"failed\":%llu,\"seconds\":%.1f,\"stopped\":%s,\"crashed\":[%s]}", done, p[1], failed,
@@ -280,7 +280,7 @@ int wmain(int argc, wchar_t** argv) {
     if (argc >= 3 && !wcscmp(argv[1], L"--child"))  // --child <parent process id> <options>
         return parse(argc, argv, 3, o) ? child((DWORD)wcstoul(argv[2], nullptr, 10), o) : fail(L"bad child arguments");
     if (argc < 3 || !parse(argc, argv, 3, o)) {
-        fputs("usage: scskiller_warm <workdir> <game exe file name> [--threads N] [--priority below|idle] [--start N]\n"
+        fputs("usage: scsfix_warm <workdir> <game exe file name> [--threads N] [--priority below|idle] [--start N]\n"
               "                      [--stop-event <name>] [--adapter-luid <hex>] [--rt-threads N] [--skip i,j,...] [--memory-mb N]\n"
               "                      [--package <app user model id>] [--stage-path <install folder>\\<dir>\\<exe>]\n"
               "                      [--skip-keys <sha1 hex>,...] [--isolate i,j,...]\n"
@@ -319,7 +319,7 @@ int wmain(int argc, wchar_t** argv) {
             sub += c + L"\\", b = e + 1;
         }
         // the child's and the proxy's GetModuleFileNameW, and CreateProcessW, take at most MAX_PATH
-        size_t longest = std::max(exe.size(), wcslen(L"scskiller_warm_times.csv")), full = GetFullPathNameW((flat + sub).c_str(), 0, nullptr, nullptr);
+        size_t longest = std::max(exe.size(), wcslen(L"scsfix_warm_times.csv")), full = GetFullPathNameW((flat + sub).c_str(), 0, nullptr, nullptr);
         if (!full || full - 1 + longest >= MAX_PATH)
             fwprintf(stderr, L"--stage-path too long (%zu characters with the longest file name): staging in %ls\n", full - 1 + longest, flat.c_str());
         else
@@ -331,11 +331,11 @@ int wmain(int argc, wchar_t** argv) {
         std::function<void()> f;
         ~Unstage() { f(); }
     } unstage{[&] {  // only inside this run's folder: the staged inputs go, the proxy's outputs stay in flat
-        for (auto n : {exe, std::wstring(L"d3d12.dll"), std::wstring(L"scskiller.db"), std::wstring(L"scskiller_gen.db"), std::wstring(L"scskiller_pass.bin")})
+        for (auto n : {exe, std::wstring(L"d3d12.dll"), std::wstring(L"scsfix.db"), std::wstring(L"scsfix_gen.db"), std::wstring(L"scsfix_pass.bin")})
             DeleteFileW((stage + n).c_str());
         for (auto& n : layer) DeleteFileW((stage + n).c_str());
         if (stage == flat) return;
-        for (auto n : {L"scskiller.log", L"scskiller_creates.csv", L"scskiller_warm_times.csv"})
+        for (auto n : {L"scsfix.log", L"scsfix_creates.csv", L"scsfix_warm_times.csv"})
             MoveFileExW((stage + n).c_str(), (flat + n).c_str(), 0);
         for (auto d = dirs.rbegin(); d != dirs.rend(); ++d) RemoveDirectoryW(d->c_str());  // only if empty
     }};
@@ -343,12 +343,12 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring to = stage + name;
         if (optional && GetFileAttributesW(from.c_str()) == INVALID_FILE_ATTRIBUTES) return true;
         // the generated plan is big and only read: hard link; the recorded db is copied (the proxy may append to it)
-        return (name == L"scskiller_gen.db" && CreateHardLinkW(to.c_str(), from.c_str(), nullptr)) || CopyFileW(from.c_str(), to.c_str(), TRUE);
+        return (name == L"scsfix_gen.db" && CreateHardLinkW(to.c_str(), from.c_str(), nullptr)) || CopyFileW(from.c_str(), to.c_str(), TRUE);
     };
     std::wstring proxy = bin + L"d3d12.dll";
     if (GetFileAttributesW(proxy.c_str()) == INVALID_FILE_ATTRIBUTES) proxy = bin + L"..\\d3d12.dll";  // the segheap\ build uses its parent's
-    if (!put(self, exe, false) || !put(proxy, L"d3d12.dll", false) || !put(work + L"scskiller.db", L"scskiller.db", true) ||
-        !put(work + L"scskiller_gen.db", L"scskiller_gen.db", true) || !put(work + L"scskiller_pass.bin", L"scskiller_pass.bin", true))
+    if (!put(self, exe, false) || !put(proxy, L"d3d12.dll", false) || !put(work + L"scsfix.db", L"scsfix.db", true) ||
+        !put(work + L"scsfix_gen.db", L"scsfix_gen.db", true) || !put(work + L"scsfix_pass.bin", L"scsfix_pass.bin", true))
         return fail(L"staging into " + stage + L" failed (error " + std::to_wstring(GetLastError()) + L")");
     if (!o.layer.empty()) {
         // the layer's log stays in the stage, with the proxy's outputs
@@ -373,7 +373,7 @@ int wmain(int argc, wchar_t** argv) {
     auto beat = map ? (volatile LONG*)MapViewOfFile(map, FILE_MAP_WRITE, 0, 0, sizeof(LONG)) : nullptr;
     if (!beat) return fail(L"heartbeat setup failed");
     // The child sets this after its last line; created before the child starts, so it can't miss it. A process whose driver
-    // was poisoned (a thread stuck in it) may never finish exiting: after SCSKILLER_WARM_EXIT_S (default 600 s: a big cache
+    // was poisoned (a thread stuck in it) may never finish exiting: after SCSFIX_WARM_EXIT_S (default 600 s: a big cache
     // flush at exit takes minutes) it is terminated, and whatever it hadn't written of the driver cache is lost (ARCHITECTURE.md).
     HANDLE final_event = CreateEventW(nullptr, TRUE, FALSE, final_name(me).c_str());
     // set by the child once its device exists: a layer's code (--layer) runs before that, and may hang
@@ -435,9 +435,9 @@ int wmain(int argc, wchar_t** argv) {
     }
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);  // a starved heartbeat would read as a pause
     wchar_t lim[16] = {};
-    ULONGLONG exit_ms = 1000ull * (GetEnvironmentVariableW(L"SCSKILLER_WARM_EXIT_S", lim, 16) ? _wtoi(lim) : 600), final_at = 0;
+    ULONGLONG exit_ms = 1000ull * (GetEnvironmentVariableW(L"SCSFIX_WARM_EXIT_S", lim, 16) ? _wtoi(lim) : 600), final_at = 0;
     // counted in this loop's turns, not wall time: the caller suspends this process to pause the warm
-    uint64_t start_turns = 10ull * (GetEnvironmentVariableW(L"SCSKILLER_WARM_START_S", lim, 16) ? _wtoi(lim) : 180), turns = 0;
+    uint64_t start_turns = 10ull * (GetEnvironmentVariableW(L"SCSFIX_WARM_START_S", lim, 16) ? _wtoi(lim) : 180), turns = 0;
     bool killed = false, stuck = false;
     while (WaitForSingleObject(pi.hProcess, 100) == WAIT_TIMEOUT) {
         InterlockedIncrement(beat);
