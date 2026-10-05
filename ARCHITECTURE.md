@@ -313,6 +313,20 @@ open game files read-only and never launch or attach to the game.
   "D3D11 or D3D12"). The dumps compatibility mode selects are the reader's `IndexStamp`: a warm is stale ("game shaders
   changed since the warm") once they change. Gaijin's launcher installs are found from `HKCU\Software\Gaijin\<project>`,
   the exe from `BattlEye\BELauncher.ini` (`GaijinSource`).
+- **Crimson Desert** (`PearlAbyss/`, fork only): the game's shaders and root signatures are in archive directory 0017,
+  `shadercache__/`, read through the PAMT index and the PAZ files (`PazArchive`: prefix-tree index, LZ4, ChaCha20 with a key from
+  the lower-cased file name; the format is lazorr410's documented one). `*.padxil` is a 36-byte header ("PASC") and a DXIL
+  container with no root signature; its name `f0_f1_stage_f3_n_f5_f6` gives the stage (f2), the pipeline (the files sharing f0,
+  f1, f5 and f6) and the pass: f0 is the lookup3 hash (seed 0xC5EDE) of the pass's PascalCase name, f1 of its source file name.
+  `*.pars` is that pass's root signature, a root-signature-only container, encrypted. The .pars names are lower-case, so a pass's
+  name comes back by trying their capitalisations (up to six capitals) against the f0 values: 135 of 239 passes name their
+  root signature that way, and every one of them covers every shader of the pass (the check that the reading is right). A
+  pass without a name takes the one root signature that covers all its shaders, or, when a few do, every one of them (the wrong
+  ones cost a compile, nothing else); a pass with more candidates is left to a recording. A shader that several passes use is
+  one index entry per root signature (the planner takes one per shader; the first by hash keeps the shader's SHA-1, the rest
+  `SHA-1(sha|root)`, served as the same bytes). Ray tracing libraries are a recording's. What is not settled by the files: that
+  the game passes the .pars container to CreateRootSignature as it is (the planner replays that); a launch after a compile
+  tells (`LaunchCheck`).
 - **Carved** (`Carved/`): any other game that ships raw DXBC/DXIL containers. Files are carved, each container
   validated and reflected; a file of pipeline records becomes one shader map per record.
 

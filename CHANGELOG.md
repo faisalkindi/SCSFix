@@ -12,6 +12,9 @@ All notable changes to the SCSKiller app and command line. The format follows
 - No self-update: the update feed and its keys are SCSKiller's, so the fork never checks, downloads or applies one.
 - Games no reader can read (encrypted Unreal, packed archives, a RE Engine package version the reader doesn't know, a Unity
   build with no readable shaders) are no longer Unsupported when a recording can help: they go to Needs recording.
+- Crimson Desert compiles without a recording: SCSFix reads its shaders and root signatures out of its archives (`0017/`,
+  `shadercache__/`). 34,392 shader entries, 31,760 pipelines; the passes whose root signature the files can't settle (70 of 239,
+  1,338 of about 35,000 shaders) and ray tracing still need a recording.
 - A DirectX 11 recorder: the recorder installed as `d3d11.dll` records a DirectX 11 game's shaders and tessellation
   pairs, and the compile replays them. NVIDIA only, like the D3D11 warm. Installed only where the game can't be read.
 
