@@ -8410,7 +8410,7 @@ public partial class AppTests : IDisposable
         await k.ActiveCheckSent;
         Assert.Empty(fake.Log);   // the command line sets none
 
-        k.Settings = k.Settings with { ShareRecordings = true };
+        k.Settings = k.Settings with { ShareRecordings = true, ActiveCheck = true };   // the fork's default is off (and the app never wires it): the mechanism is SCSKiller's, kept
         k.Sharing = new Sharing(Path.Combine(_root, "data"), () => k.Settings.ShareRecordings, routes);
         k.ActiveCheck = new ActiveCheck(Path.Combine(_root, "data"), () => k.Settings.ActiveCheck, k.Vendor.Vendor, AppVersion.Parse("1.2.3"), routes);
         for (var i = 0; i < 2; i++)
