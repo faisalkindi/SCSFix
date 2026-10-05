@@ -92,19 +92,26 @@ public sealed class Planner(string? packDir = null, string? sharedPackDir = null
     }
 
     /// <summary>A game whose files nobody could read (<see cref="EngineInfo.RecordOnly"/>): the plan can only come from a
-    /// recording, which only a DirectX 12 game can have (the recorder is a d3d12.dll). Anti-cheat is the app's to judge.</summary>
+    /// recording. DirectX 12 has a recorder (d3d12.dll); so does DirectX 11 where its cache is warmed (<see cref="D3D11Cache"/>,
+    /// the same proxy as d3d11.dll). Anti-cheat is the app's to judge.</summary>
     static PlanCheck CheckRecordOnly(EngineInfo engine, Recording? recording, VendorCaps caps)
     {
         var why = engine.Unsupported ?? "its game files can't be read";
         var api = engine.GraphicsApi;
-        if (!api.Contains("D3D12")) return new(Readiness.Unsupported, why);   // no recorder for this API: the reader's own reason
+        bool d12 = api.Contains("D3D12"), d11 = api.Contains("D3D11") && D3D11Cache(caps);
+        if (!d12 && !d11) return new(Readiness.Unsupported, why);   // no recorder for this API: the reader's own reason
         if (!caps.CacheKeyedByExeName) return new(Readiness.Unsupported, "not supported on this GPU yet");
-        var maybe = api.StartsWith("D3D12") ? "" : "; helps only when played on DirectX 12 (the game may run on DirectX 11)";
+        // both recorders go into a game that may run on either; without the DirectX 11 one, only DirectX 12 play is recorded
+        var maybe = d12 && !d11 && !api.StartsWith("D3D12") ? "; helps only when played on DirectX 12 (the game may run on DirectX 11)" : "";
         if (recording != null && File.Exists(recording.DbPath) && new FileInfo(recording.DbPath).Length > 0)
-            return caps.StateIndependentCache || HasDraws(recording) ? new(Readiness.Ready, "planned from a recording" + maybe)
+            return d12 && (caps.StateIndependentCache || HasDraws(recording)) || d11 && HasD3D11Items(recording)
+                ? new(Readiness.Ready, "planned from a recording" + maybe)
                 : new(Readiness.NeedsRecording, "the recording has no draws: play into the game world" + maybe);
         return new(Readiness.NeedsRecording, $"{Record}; its game files can't be read here ({why}){maybe}");
     }
+
+    /// <summary>The recording has a D3D11 shader item ('1') or tessellation pair ('2'): what the d3d11.dll recorder writes.</summary>
+    static bool HasD3D11Items(Recording recording) => Read(recording.DbPath).Any(r => r.Tag is '1' or '2');
 
     static PlanCheck CheckD3D12(EngineInfo engine, Recording? recording, VendorCaps caps, string maybe)
     {

@@ -270,7 +270,8 @@ public sealed record GameState(
     bool RecordedEnough = false,       // GameRecord.RecordedLong: asking for "5 minutes" again says nothing
     bool OfflineEligible = false,      // an EasyAntiCheat game of Games.OfflineEac on D3D12: an offline session may be offered
     bool OfflineRecord = false,        // the user allowed offline sessions for it (IScsFix.SetOfflineRecording)
-    bool OfflineRunning = false);      // a session SCSFix started runs, or its files aren't out of the game folder yet
+    bool OfflineRunning = false,       // a session SCSFix started runs, or its files aren't out of the game folder yet
+    bool Records11 = false);           // a record-only game that may run on DirectX 11, on a GPU whose D3D11 cache is warmed: its recorder is also d3d11.dll (ScsFix.Proxy11)
 
 /// <summary>A launch's frame times from the recorder (<see cref="App.FrameLog"/>): its length, the startup stretch before
 /// play (the game's own precompile and first load), the 1% low of play, every frame of 50 ms or more, and for a graph

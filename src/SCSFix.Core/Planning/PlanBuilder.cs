@@ -28,6 +28,7 @@ sealed class PlanBuilder
 
     // the recording
     readonly List<Rec> recs = [];   // PSO records ('G' / 'C' / 'S'): what plans are built from
+    int recorded11;                 // the recording's D3D11 items ('1') and tessellation pairs ('2'): the warm replays them from it, as they are
     readonly List<Rec> stateObjects = []; // recorded ray tracing state objects ('R' / 'A'): replayed as recorded; RtPlan learns from them
     readonly List<Rec> nvRecs = [];       // the recording's 'N' records: the NVAPI state RtPlan gives synthesized collections
     readonly HashSet<string> layered = [];  // what the driver got from a layer wrapping the device ('W'): a mod's, kept out of packs (they are shared)
@@ -179,6 +180,7 @@ sealed class PlanBuilder
                 else if (IsStateObject(r.Tag)) stateObjects.Add(r);
                 else if (r.Tag == 'N') nvRecs.Add(r);
                 else if (r.Tag == 'W' && r.Payload.Length == 40) layered.Add(Hex(r.Payload.AsSpan(0, 20)));
+                else if (r.Tag is '1' or '2') recorded11++;
         // a root signature the readers can't follow (a shared recording's) goes with the records naming it, not the game
         var named = recs.Select(r => Parse(r).Rs).Concat(stateObjects.SelectMany(r => ParseStateObject(r).RootSignatures)).ToHashSet();
         var bad = named.Where(h => recBlobs.TryGetValue(h, out var b) && !Carved.Dxbc.RootSignatureValid(b)).ToHashSet();
@@ -956,7 +958,7 @@ sealed class PlanBuilder
             ? maps.Where(m => m.Platform == plat).SelectMany(m => m.Shas).Distinct().Count(h => bc.TryGetValue(h, out var s) && s.InlineRayTracing) : 0;
         var plan = new Plan(game.Id, index.ContentHash, string.Join(" + ", new[] { plat, n11 > 0 ? $"D3D11 {plat11 ?? "DXBC"}" : "" }.Where(p => p != "")), caps.Profile,
             new PlanStats(recs.Count + stateObjects.Count, items.Count + synthesized.Count + rtItems.Count + hitGroupItems.Count, synthesized.Count, usedRs.Count, dx12 && (verified || embeddedRs > 0),
-                unitsBy[(int)Provenance.Exact], unitsBy[(int)Provenance.Inferred], unitsBy[(int)Provenance.Guessed], layoutCoverage, n11, packNew,
+                unitsBy[(int)Provenance.Exact], unitsBy[(int)Provenance.Inferred], unitsBy[(int)Provenance.Guessed], layoutCoverage, n11 + recorded11, packNew,
                 stats.GetValueOrDefault("rs_uncovered"), rtLibs, inlineOnly || engine.NoRtPipelines ? 0 : rtLibs - rtCovered,
                 StageSets: seen.Count, LeftOut: new[] { "no_rs", "no_template", "no_gs_template", "rs_uncovered", "stream_output" }.Sum(stats.GetValueOrDefault),
                 MiddlewareSharedItems: packShared, RtStateObjects: replayable.Count, RtInline: rtInline),

@@ -45,14 +45,21 @@ public class PlannerTests(ITestOutputHelper output)
         Assert.Equal(Readiness.NeedsRecording, check.Readiness);
         Assert.StartsWith(Planner.Record, check.Reason);                      // the library's labels and the recorder prompt key on it
         Assert.Contains(why, check.Reason);
-        Assert.Contains("helps only when played on DirectX 12", p.Check(game, enc with { GraphicsApi = UnrealRhi.Ambiguous }, null, Ff7.Nvidia).Reason);
-        Assert.Equal(new PlanCheck(Readiness.Unsupported, why), p.Check(game, enc with { GraphicsApi = "D3D11" }, null, Ff7.Nvidia));   // no D3D11 recorder
+        Assert.DoesNotContain("helps only", p.Check(game, enc with { GraphicsApi = UnrealRhi.Ambiguous }, null, Ff7.Nvidia).Reason);   // both recorders go in
+        Assert.Contains("helps only when played on DirectX 12", p.Check(game, enc with { GraphicsApi = UnrealRhi.Ambiguous }, null, StateDependent).Reason);
+        Assert.Equal(Readiness.NeedsRecording, p.Check(game, enc with { GraphicsApi = "D3D11" }, null, Ff7.Nvidia).Readiness);       // the D3D11 recorder (NVIDIA)
+        Assert.Equal(new PlanCheck(Readiness.Unsupported, why), p.Check(game, enc with { GraphicsApi = "D3D11" }, null, StateDependent));   // a GPU whose D3D11 cache isn't warmed
         Assert.Equal(Readiness.Unsupported, p.Check(game, enc with { GraphicsApi = "Vulkan" }, null, Ff7.Nvidia).Readiness);
         Assert.Equal(new PlanCheck(Readiness.Unsupported, "not supported on this GPU yet"), p.Check(game, enc, null, Ff7.Nvidia with { CacheKeyedByExeName = false }));
         var db = Path.GetTempFileName();
         File.WriteAllBytes(db, [(byte)'C', 40, 0, 0, 0, .. new byte[40]]);
         Assert.Equal(new PlanCheck(Readiness.Ready, "planned from a recording"), p.Check(game, enc, new Recording(db), Ff7.Nvidia));
         Assert.Equal(Readiness.NeedsRecording, p.Check(game, enc, new Recording(db), StateDependent).Readiness);   // no draws in it
+        // a D3D11 recording ('1' item + its blob) makes a DirectX 11 game Ready; one with only D3D12 records doesn't
+        var db11 = Path.GetTempFileName();
+        File.WriteAllBytes(db11, [(byte)'1', 24, 0, 0, 0, .. new byte[24]]);
+        Assert.Equal(Readiness.Ready, p.Check(game, enc with { GraphicsApi = "D3D11" }, new Recording(db11), Ff7.Nvidia).Readiness);
+        Assert.Equal(Readiness.NeedsRecording, p.Check(game, enc with { GraphicsApi = "D3D11" }, new Recording(db), Ff7.Nvidia).Readiness);
         // the Unsupported/Encrypted flags without RecordOnly keep their old meaning (an engine reader that says no, on purpose)
         Assert.Equal(Readiness.Unsupported, p.Check(game, enc with { RecordOnly = false }, null, Ff7.Nvidia).Readiness);
     }

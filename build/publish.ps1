@@ -5,7 +5,7 @@ Builds dist\SCSFix\ and dist\SCSFix.zip:
   SCSFix.exe            WinUI app, self-contained (.NET + Windows App SDK), + oodle-data-shared.dll, zlib-ng2.dll
   cli\scsfix.exe        command line, self-contained, same Core project and commit, + the two codec DLLs
   cli\scsfixw.exe       the same CLI flagged as a GUI-subsystem exe: what the scheduled task runs (no console window)
-  native\                  scsfix_warm.exe + the proxy d3d12.dll (the app looks in native\, the CLI in ..\native\)
+  native\                  scsfix_warm.exe + the proxy d3d12.dll and the same file as d3d11.dll (the recorder's DirectX 11 name; the app looks in native\, the CLI in ..\native\)
                            + amd_ags_x64.dll (AMD AGS, downloaded by the proxy's CMake configure)
                            + segheap\scsfix_warm.exe (the same on the segment heap: NVIDIA's warm)
   THIRD-PARTY-NOTICES.md   every third-party component and its licence; notices\ holds the Microsoft packages' own notices
@@ -52,7 +52,7 @@ $scskVersion = if ($Version) { $Version } else { "0.0.0-internal.0" }   # every 
 Run cmake @("-S", (Join-Path $repo "proxy"), "-B", $build, "-A", "x64", "-DSCSK_VERSION=$scskVersion")
 Run cmake @("--build", $build, "--config", "Release")
 New-Item -ItemType Directory -Force $native | Out-Null
-Copy-Item (Join-Path $build "Release\scsfix_warm.exe"), (Join-Path $build "Release\d3d12.dll"), (Join-Path $build "Release\amd_ags_x64.dll") $native
+Copy-Item (Join-Path $build "Release\scsfix_warm.exe"), (Join-Path $build "Release\d3d12.dll"), (Join-Path $build "Release\d3d11.dll"), (Join-Path $build "Release\amd_ags_x64.dll") $native
 New-Item -ItemType Directory -Force (Join-Path $native "segheap") | Out-Null
 Copy-Item (Join-Path $build "Release\segheap\scsfix_warm.exe") (Join-Path $native "segheap")
 
@@ -111,7 +111,7 @@ foreach ($n in @(
 # 5. layout check, including self-contained .NET (no "install .NET" prompt): the runtime next to each exe and
 #    runtimeconfig.json listing includedFrameworks rather than a shared framework
 $expected = "SCSFix.exe", "oodle-data-shared.dll", "zlib-ng2.dll", "cli\scsfix.exe", "cli\scsfixw.exe",
-    "cli\oodle-data-shared.dll", "cli\zlib-ng2.dll", "native\scsfix_warm.exe", "native\segheap\scsfix_warm.exe", "native\d3d12.dll", "native\amd_ags_x64.dll",
+    "cli\oodle-data-shared.dll", "cli\zlib-ng2.dll", "native\scsfix_warm.exe", "native\segheap\scsfix_warm.exe", "native\d3d12.dll", "native\d3d11.dll", "native\amd_ags_x64.dll",
     "hostfxr.dll", "coreclr.dll", "cli\hostfxr.dll", "cli\coreclr.dll", "Microsoft.WindowsAppRuntime.dll", "SCSFix.pri",
     "THIRD-PARTY-NOTICES.md", "LICENSE", "LICENSE-EXCEPTION.txt", "notices\dotnet-THIRD-PARTY-NOTICES.txt"
 if ($NoOodle) { $expected = $expected | Where-Object { $_ -notlike "*oodle-data-shared.dll" } }

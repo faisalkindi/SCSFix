@@ -79,3 +79,8 @@ endif()
 # Also the "game" of gen/test_warm11.py (compile, first).
 add_executable(probe11 probe11.cpp)
 target_link_libraries(probe11 d3dcompiler)
+
+# A stand-in for a DirectX 11 game (imports d3d11.dll, creates shaders): proxy/test_d3d11rec_app.ps1 runs the app's recorder install,
+# the recording, the compile and the removal against it. Test only, never published.
+add_executable(fakegame11 fakegame11.cpp)
+set_target_properties(fakegame11 PROPERTIES OUTPUT_NAME FakeGame11)

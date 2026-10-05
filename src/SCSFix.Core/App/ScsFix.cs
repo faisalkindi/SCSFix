@@ -22,6 +22,18 @@ public sealed partial class ScsFix : IScsFix
     /// <summary>What compiling the game adds to the driver cache: its estimate less what its keys already hold.</summary>
     public static long CacheGrowth(GameState s) => Math.Max(0, (s.EstimatedCacheBytes ?? 0) - (s.CacheOnDisk ?? 0));
     static readonly byte[] ProxyMarker = "SCSFix_StartWarm"u8.ToArray();   // an export only our proxy d3d12.dll has
+
+    /// <summary>The recorder's other name: the same binary as d3d12.dll, which reads the file name it was loaded under and then
+    /// records a DirectX 11 game's shaders (proxy.cpp, "D3D11 recorder"). Installed only in a game none of the readers can read
+    /// (<see cref="EngineInfo.RecordOnly"/>) that may run on DirectX 11, where the D3D11 cache is warmed (<see cref="Planner.D3D11Cache"/>).</summary>
+    public const string Proxy11 = "d3d11.dll";
+
+    /// <summary>Our proxy under either name in the folder; one that can't be read counts as ours, as in <see cref="ProxyOnDisk"/>.</summary>
+    static bool OurProxyIn(string dir) => IsOurProxy(Path.Combine(dir, "d3d12.dll")) || IsOurProxy(Path.Combine(dir, Proxy11));
+
+    /// <summary>The recorder this game's folder gets as its main file: d3d12.dll, or d3d11.dll for a game that only runs on DirectX 11.</summary>
+    static bool Wants12(GameState s) => s.Engine?.GraphicsApi.Contains("D3D12") == true;
+    static string ProxyName(GameState s) => Wants12(s) ? "d3d12.dll" : Proxy11;
     const string RecorderIni = "[scsfix]\r\n; written by SCSFix: record the pipelines this game creates. Removed by 'uninstall recorder'.\r\nmode=record\r\n";
     static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(500), AttributionInterval = TimeSpan.FromSeconds(3);
     // A new SCSFix version may detect engines or plan differently: cached scan results from another one are redone.
@@ -551,10 +563,9 @@ public sealed partial class ScsFix : IScsFix
             TakeOutNow(g, ShaderModReason(shaderMod!.Mod!));   // the command line doesn't reconcile
             rec = Store.LoadGame(g.Id);   // what the removal left
         }
-        var dll = Path.Combine(exeDir, "d3d12.dll");
         bool ours;
-        try { ours = IsOurProxy(dll); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { ours = rec.RecorderFiles.ContainsKey("d3d12.dll"); }   // held by the game
+        try { ours = OurProxyIn(exeDir); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { ours = rec.RecorderFiles.ContainsKey("d3d12.dll") || rec.RecorderFiles.ContainsKey(Proxy11); }   // held by the game
         // the recorder is never installed next to anti-cheat, nor in a game the user added before they confirm its folder
         var unconfirmed = Unconfirmed(g);
         var noRecording = antiCheat != AntiCheat.None ? $"which {(antiCheat == AntiCheat.Other ? "its anti-cheat" : antiCheat)} blocks"
@@ -598,7 +609,8 @@ public sealed partial class ScsFix : IScsFix
 
     GameState WithRecorder(GameState s, GameRecord rec, bool ours, string exeDir)
     {
-        var skip = RecorderSkip(s, ModSkip(exeDir, rec, ours)) ?? _recorderSkips.GetValueOrDefault(s.Game.Id);
+        s = s with { Records11 = Records11Of(s) };
+        var skip = RecorderSkip(s, ModSkip(exeDir, rec, ours, Wants12(s), s.Records11)) ?? _recorderSkips.GetValueOrDefault(s.Game.Id);
         var o = rec.Recorder ?? (ours ? RecorderOverride.On : RecorderOverride.Default);
         var db = Length(Path.Combine(exeDir, "scsfix.db"));
         return s with { RecorderOverride = o, RecorderSkip = skip, RecorderEffective = RecorderEffective(o, Settings.RecordAllGames, skip),
@@ -935,12 +947,14 @@ public sealed partial class ScsFix : IScsFix
     /// (<see cref="RecorderSkip"/>): its retention and eligibility need the full anti-cheat check.</summary>
     static bool RecorderMayGoIn(Game g, GameRecord rec, EngineInfo? engine) =>
         rec.RecorderFiles.Count > 0 || rec.RecorderChained != null || rec.RecorderExe != null || rec.RecorderMoveFrom != null
-        || engine is { Unsupported: null } && engine.GraphicsApi.Contains("D3D12") || ProxyOnDisk(g) || ProxyOnDisk(RecordedAt(g, rec));
+        || engine is { Unsupported: null } && engine.GraphicsApi.Contains("D3D12")
+        || engine is { RecordOnly: true } && (engine.GraphicsApi.Contains("D3D12") || engine.GraphicsApi.Contains("D3D11"))
+        || ProxyOnDisk(g) || ProxyOnDisk(RecordedAt(g, rec));
 
-    /// <summary>Our proxy next to the exe; a d3d12.dll that can't be read counts as ours.</summary>
+    /// <summary>Our proxy next to the exe, under either name; a dll that can't be read counts as ours.</summary>
     static bool ProxyOnDisk(Game g)
     {
-        try { return IsOurProxy(Path.Combine(Path.GetDirectoryName(g.ExePath)!, "d3d12.dll")); }
+        try { return OurProxyIn(Path.GetDirectoryName(g.ExePath)!); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return true; }
     }
 
@@ -1947,8 +1961,7 @@ public sealed partial class ScsFix : IScsFix
         if (!GameFolderWrite(g)) return KeysLater(rec);   // the game may have started during the wait
         try
         {
-            var dll = Path.Combine(dir, "d3d12.dll");
-            if (IsOurProxy(dll))
+            if (OurProxyIn(dir))
             {
                 var shipped = rec.IndexContentHash is { } h ? Sharing.Shipped(Store.GameDir(g.Id), h) : null;
                 var installed = shipped != null && IndexIsInstalled(g, rec);
@@ -1956,7 +1969,7 @@ public sealed partial class ScsFix : IScsFix
                 var left = Recordings.WriteKeys(RecordingPath(g.Id), shipped, keys, installed,
                     () =>
                     {
-                        if (GameFolderWrite(g)) return IsOurProxy(dll);
+                        if (GameFolderWrite(g)) return OurProxyIn(dir);
                         later = true;
                         return false;
                     });
@@ -2058,7 +2071,8 @@ public sealed partial class ScsFix : IScsFix
         SkipVulkanMod = "vkd3d-proton runs the game on Vulkan, whose pipelines a D3D12 warm doesn't compile",
         SkipNeedsAdmin = "the game folder needs administrator", SkipNotDx12 = "not DirectX 12", SkipUnsupported = "not supported yet",
         SkipShaderMod = "an HDR mod outside the exe's folder changes every pipeline",
-        SkipManual = "game folder not confirmed";
+        SkipManual = "game folder not confirmed",
+        SkipForeignDll11 = "another d3d11.dll is already there";
 
     /// <summary>Why a game whose ReShade add-on adds to every root signature, in a layer a copy can't reproduce
     /// (<see cref="ReShadeInstall.Blocks"/>), isn't compiled.</summary>
@@ -2093,7 +2107,7 @@ public sealed partial class ScsFix : IScsFix
         : s.ShaderModBlocks ? SkipShaderMod
         : s.RootUnconfirmed ? SkipManual
         : s.Engine == null || s.Status == GameStatus.Unsupported ? SkipUnsupported
-        : !s.Engine.GraphicsApi.Contains("D3D12") ? SkipNotDx12   // the proxy is d3d12.dll; "D3D11 or D3D12" may run on it
+        : !s.Engine.GraphicsApi.Contains("D3D12") && !s.Records11 ? SkipNotDx12   // the proxy is d3d12.dll, or d3d11.dll for a record-only DirectX 11 game; "D3D11 or D3D12" may run on either
         : modSkip != null ? modSkip   // ReShade, OptiScaler, another wrapper: never replaced, chained only when the user asks
         : s.Game.ExePath.Contains(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase) ? SkipNeedsAdmin
         : null;
@@ -2105,13 +2119,19 @@ public sealed partial class ScsFix : IScsFix
     /// <summary>A mod's d3d12.dll in the recorder's place (or chained to it): null = none, or the user chose to record alongside
     /// it (<see cref="GameRecord.RecordAlongsideMod"/>) and it can be chained; else the skip reason. Turning the choice off
     /// while chained gives a skip, so Reconcile removes the recorder and puts the mod back.</summary>
-    static string? ModSkip(string dir, GameRecord rec, bool ours)
+    static string? ModSkip(string dir, GameRecord rec, bool ours, bool d12 = true, bool d11 = false)
     {
+        // a game that only runs on DirectX 11 has no d3d12.dll of ours: another d3d11.dll in its place is never replaced or chained
+        if (!d12) return d11 && File.Exists(Path.Combine(dir, Proxy11)) && !ours ? SkipForeignDll11 : null;
         var dll = Path.Combine(dir, "d3d12.dll");
         var mod = rec.RecorderChained is { } c ? Path.Combine(dir, c.Name) : !ours && File.Exists(dll) ? dll : null;
         return mod == null ? null : !rec.RecordAlongsideMod ? SkipForeignDll
             : ChainBlocker(mod) switch { null => null, SkipVulkanMod => SkipVulkanMod, _ => SkipModNotChainable };
     }
+
+    /// <summary>Whether the DirectX 11 recorder (d3d11.dll) goes into this game: it can't be read, it may run on DirectX 11, and
+    /// its GPU's D3D11 cache is warmed (NVIDIA). Anti-cheat is RecorderSkip's.</summary>
+    bool Records11Of(GameState s) => s.Engine is { RecordOnly: true } e && e.GraphicsApi.Contains("D3D11") && Planner.D3D11Cache(Vendor.Caps);
 
     /// <summary>Why a mod's d3d12.dll can't be chained (renamed to <see cref="ChainName"/>); null = it can. OptiScaler and
     /// Special K pick their role from their own file name, so renamed they'd stop working. vkd3d-proton (its own strings
@@ -2313,7 +2333,7 @@ public sealed partial class ScsFix : IScsFix
             var rec = Store.LoadGame(gameId);
             var dirs = new[] { rec.RecorderExe ?? rec.RecorderMoveFrom, g.ExePath }.OfType<string>().Select(Path.GetDirectoryName).OfType<string>()
                 .Distinct(StringComparer.OrdinalIgnoreCase).Where(Directory.Exists).ToList();
-            bool Left(string dir) => IsOurProxy(Path.Combine(dir, "d3d12.dll")) || RecorderDataFiles.Append(Recordings.KeysFile).Any(f => File.Exists(Path.Combine(dir, f)));
+            bool Left(string dir) => OurProxyIn(dir) || RecorderDataFiles.Append(Recordings.KeysFile).Any(f => File.Exists(Path.Combine(dir, f)));
             if (rec.RecorderFiles.Count > 0 || rec.RecorderChained != null || dirs.Any(Left))
             {
                 if (GameRunning(g)) throw new InvalidOperationException($"{g.Name} is running: close the game first");
@@ -2371,7 +2391,7 @@ public sealed partial class ScsFix : IScsFix
         var (g, id) = (s.Game, s.Game.Id);
         if (OfflineLive(id)) return false;   // its own end takes it out
         var dir = Path.GetDirectoryName(g.ExePath)!;
-        var dll = Path.Combine(dir, "d3d12.dll");
+        var dll = Path.Combine(dir, ProxyName(s));
         var rec = Store.LoadGame(id);
         bool ours = IsOurProxy(dll), changed = false;
         // a recorder next to another exe than the game's (its launcher) is never loaded: it moves. Both folders are
@@ -2380,7 +2400,7 @@ public sealed partial class ScsFix : IScsFix
         var was = rec.RecorderMoveFrom ?? rec.RecorderExe;
         var wasDir = was == null ? null : Path.GetDirectoryName(was);
         bool move = wasDir != null && !wasDir.Equals(dir, StringComparison.OrdinalIgnoreCase) && Directory.Exists(wasDir)
-            && (rec.RecorderMoveFrom != null || rec.RecorderFiles.Count > 0 || rec.RecorderChained != null || IsOurProxy(Path.Combine(wasDir, "d3d12.dll")));
+            && (rec.RecorderMoveFrom != null || rec.RecorderFiles.Count > 0 || rec.RecorderChained != null || OurProxyIn(wasDir));
         if (move && (rec.RecorderMoveFrom == null || rec.RecorderMoveTo != g.ExePath))
         {
             (rec.RecorderMoveFrom, rec.RecorderMoveTo) = (was, g.ExePath);
@@ -2467,12 +2487,17 @@ public sealed partial class ScsFix : IScsFix
             }
             clean = true;
         }
-        bool want = RecorderEffective(rec.Recorder.Value, Settings.RecordAllGames, RecorderSkip(s, ModSkip(dir, rec, ours)));
+        bool want = RecorderEffective(rec.Recorder.Value, Settings.RecordAllGames, RecorderSkip(s, ModSkip(dir, rec, ours, Wants12(s), s.Records11)));
         // another SCSFix build's proxy, never a newer one's (a release's under a dev build, all 0.0.0.0)
         bool update = want && ours && ProxySha() is { } sha && Sha256(dll) != sha && FileVersion(dll) <= FileVersion(_proxyDll!);
+        // a game that may run on either API also gets the DirectX 11 file, unless another d3d11.dll is in its place
+        var dll11 = Path.Combine(dir, Proxy11);
+        bool second = want && Wants12(s) && s.Records11 && (!File.Exists(dll11) || IsOurProxy(dll11));
+        bool missing11 = second && ours && !IsOurProxy(dll11);
+        update |= second && IsOurProxy(dll11) && ProxySha() is { } sha11 && Sha256(dll11) != sha11 && FileVersion(dll11) <= FileVersion(_proxyDll!);
         string? note = null;
         bool reinstall = want && moved && (!ours || ProxySha() != null && FileVersion(dll) <= FileVersion(_proxyDll!));   // as update: never over a newer build's
-        if (want != ours || update || reinstall || (!want && (rec.RecorderFiles.Count > 0 || rec.RecorderChained != null)))
+        if (want != ours || update || reinstall || missing11 || (!want && (rec.RecorderFiles.Count > 0 || rec.RecorderChained != null)))
         {
             if (GameRunning(g))
                 note = update ? "updates when the game exits" : want ? "installs when the game exits" : "removed when the game exits";
@@ -2599,13 +2624,17 @@ public sealed partial class ScsFix : IScsFix
         if (!GameFolderWrite(g)) throw new InvalidOperationException($"{g.Name} is running");
         var src = _proxyDll ?? throw new FileNotFoundException("the proxy d3d12.dll was not found next to the app");
         var dir = Path.GetDirectoryName(g.ExePath)!;
-        var dll = Path.Combine(dir, "d3d12.dll");
+        var state = Games.FirstOrDefault(x => x.Game.Id == g.Id);   // none (a game not scanned): the DirectX 12 recorder, as before
+        var (d12, d11) = (state == null || Wants12(state), state?.Records11 == true);
+        var primary = d12 ? "d3d12.dll" : Proxy11;
+        var dll = Path.Combine(dir, primary);
         var ini = Path.Combine(dir, "scsfix.ini");
         bool iniOurs = !File.Exists(ini) || (rec.RecorderFiles.TryGetValue("scsfix.ini", out var h) && h == Sha256(ini));
         bool chain = File.Exists(dll) && !IsOurProxy(dll);
         (rec.RecorderExe, rec.RecorderInstallDir) = (g.ExePath, g.InstallDir);
         if (chain)
         {
+            if (!d12) throw new InvalidOperationException($"{dll} already exists and is not SCSFix's (another mod or wrapper). Not replacing it.");
             if (!rec.RecordAlongsideMod)
                 throw new InvalidOperationException($"{dll} already exists and is not SCSFix's (another mod or wrapper). Not replacing it.");
             if (ChainBlocker(dll) is { } why) throw new InvalidOperationException($"{dll}: {why}. Not renaming it.");
@@ -2646,7 +2675,8 @@ public sealed partial class ScsFix : IScsFix
         Exception? failed = null;
         try
         {
-            rec.RecorderFiles["d3d12.dll"] = Sha256(dll);
+            rec.RecorderFiles[primary] = Sha256(dll);
+            if (d12 && d11) InstallProxy11(g, dir, src, rec);
             InstallStep?.Invoke("copied");
             antiCheat = GameFiles.DetectAntiCheat(g, quick: true);   // an update may have added one since the check, likely next to the exe
             if (antiCheat == AntiCheat.None && !GameFolderWrite(g)) throw new InvalidOperationException($"{g.Name} started while the recorder was installed");
@@ -2681,6 +2711,20 @@ public sealed partial class ScsFix : IScsFix
         }
         TakeOut(g, rec, $"the recorder install failed ({failed!.Message})");
         System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failed);
+    }
+
+    /// <summary>The DirectX 11 recorder beside d3d12.dll, for a game that may run on either: the same file under its other name.
+    /// Another d3d11.dll (ReShade, a wrapper) is never replaced or chained: the game isn't recorded on DirectX 11 then.</summary>
+    void InstallProxy11(Game g, string dir, string src, GameRecord rec)
+    {
+        var dll = Path.Combine(dir, Proxy11);
+        if (File.Exists(dll) && !IsOurProxy(dll))
+        {
+            RecorderLog($"{g.Name}: {dll} is not SCSFix's: left alone, the game isn't recorded on DirectX 11");
+            return;
+        }
+        File.Copy(src, dll, overwrite: true);
+        rec.RecorderFiles[Proxy11] = Sha256(dll);
     }
 
     /// <summary>Whether SCSFix may write into the game's folder now: not while the game runs (<see cref="GameRunning"/>;
@@ -2836,7 +2880,7 @@ public sealed partial class ScsFix : IScsFix
             var rec = installing ?? Store.LoadGame(g.Id);
             try
             {
-                if (!IsOurProxy(Path.Combine(Path.GetDirectoryName(g.ExePath)!, "d3d12.dll")) && !IsOurProxy(Path.Combine(Path.GetDirectoryName(RecordedAt(g, rec).ExePath)!, "d3d12.dll"))
+                if (!OurProxyIn(Path.GetDirectoryName(g.ExePath)!) && !OurProxyIn(Path.GetDirectoryName(RecordedAt(g, rec).ExePath)!)
                     && rec.RecorderFiles.Count == 0 && rec.RecorderChained == null) return;
                 TakeOut(g, rec, why);
             }
@@ -2896,7 +2940,7 @@ public sealed partial class ScsFix : IScsFix
             var dir = Path.GetDirectoryName(g.ExePath)!;
             var ini = Path.Combine(dir, "scsfix.ini");
             // missing next to our proxy: an install cut off before it wrote it (Install takes a missing ini for its own)
-            if (File.Exists(ini) ? !rec.RecorderFiles.TryGetValue("scsfix.ini", out var h) || h != Sha256(ini) : !IsOurProxy(Path.Combine(dir, "d3d12.dll"))) return;
+            if (File.Exists(ini) ? !rec.RecorderFiles.TryGetValue("scsfix.ini", out var h) || h != Sha256(ini) : !OurProxyIn(dir)) return;
             var text = IniText(g, rec);
             if (File.Exists(ini) && File.ReadAllText(ini) == text) return;
             File.WriteAllText(ini, text);
@@ -2943,6 +2987,8 @@ public sealed partial class ScsFix : IScsFix
         // a recorder installed before SCSFix tracked its files (or by hand) is still ours: the proxy carries our export
         var dll = Path.Combine(dir, "d3d12.dll");
         if (IsOurProxy(dll)) File.Delete(dll);
+        var dll11 = Path.Combine(dir, Proxy11);
+        if (IsOurProxy(dll11)) File.Delete(dll11);
         if (rec.RecorderChained is { } c)
         {
             var from = Path.Combine(dir, c.Name);
@@ -3959,7 +4005,7 @@ public sealed partial class ScsFix : IScsFix
     }
 
     /// <summary>The files the app and the proxy write next to the exe: none is an anti-cheat marker.</summary>
-    static readonly HashSet<string> RecorderOwnFiles = new([.. RecorderDataFiles, Recordings.KeysFile, Recordings.KeysFile + ".tmp", "d3d12.dll", "scsfix.ini", ChainName, ArmedFile],
+    static readonly HashSet<string> RecorderOwnFiles = new([.. RecorderDataFiles, Recordings.KeysFile, Recordings.KeysFile + ".tmp", "d3d12.dll", Proxy11, "scsfix.ini", ChainName, ArmedFile],
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The file types a mod or a game writes as it runs that are never loaded as code (LoadLibrary takes any extension,
@@ -4209,7 +4255,7 @@ public sealed partial class ScsFix : IScsFix
             if (g.Store == Core.Store.Manual && Manual?.ConfirmedNow(g) != true) return;   // the folder checked is still the one confirmed
             try
             {
-                if (!IsOurProxy(Path.Combine(Path.GetDirectoryName(g.ExePath)!, "d3d12.dll")) || BlockingMod(g) != null) return;   // a blocking HDR mod: never recorded
+                if (!OurProxyIn(Path.GetDirectoryName(g.ExePath)!) || BlockingMod(g) != null) return;   // a blocking HDR mod: never recorded
                 DeleteRevocationMark(g.ExePath);   // first; one that can't go keeps it unarmed
                 WriteAttestation(g.ExePath);
                 if (InstallGen(g) != gen || DisarmQueued(g)) File.Delete(LedgerFile(g.ExePath));   // a change counted while it was written
@@ -4265,7 +4311,7 @@ public sealed partial class ScsFix : IScsFix
         var (at, tries) = _unarmedRetry.GetValueOrDefault(g.Id);
         if (tries >= UnarmedRetries || at != null && at.Elapsed < UnarmedRetryInterval) return false;
         _unarmedRetry[g.Id] = (Stopwatch.StartNew(), tries + 1);
-        try { return !Unconfirmed(g) && IsOurProxy(Path.Combine(Path.GetDirectoryName(g.ExePath)!, "d3d12.dll")) && BlockingMod(g) == null; }
+        try { return !Unconfirmed(g) && OurProxyIn(Path.GetDirectoryName(g.ExePath)!) && BlockingMod(g) == null; }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
     }
 
