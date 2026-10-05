@@ -124,12 +124,12 @@ public class ActiveCheckTests : IDisposable
     }
 
     [Fact]
-    public void The_check_is_on_by_default_also_for_settings_saved_before_it_existed()
+    public void The_check_is_off_by_default_in_the_fork_also_for_settings_saved_before_it_existed()   // SCSKiller's is on; the ping counts installs on its server
     {
-        Assert.True(AppStore.DefaultSettings.ActiveCheck);
-        var saved = System.Text.Json.Nodes.JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(AppStore.DefaultSettings with { ActiveCheck = false }, AppStore.Json))!.AsObject();
-        Assert.False(System.Text.Json.JsonSerializer.Deserialize<Settings>(saved, AppStore.Json)!.ActiveCheck);
-        Assert.True(saved.Remove("ActiveCheck"));
+        Assert.False(AppStore.DefaultSettings.ActiveCheck);
+        var saved = System.Text.Json.Nodes.JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(AppStore.DefaultSettings with { ActiveCheck = true }, AppStore.Json))!.AsObject();
         Assert.True(System.Text.Json.JsonSerializer.Deserialize<Settings>(saved, AppStore.Json)!.ActiveCheck);
+        Assert.True(saved.Remove("ActiveCheck"));
+        Assert.False(System.Text.Json.JsonSerializer.Deserialize<Settings>(saved, AppStore.Json)!.ActiveCheck);
     }
 }

@@ -9,7 +9,8 @@ import re, subprocess, sys, pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DRY = "--dry" in sys.argv
 
-SKIP_FILES = {"LICENSE", "LICENSE-EXCEPTION.txt", "THIRD-PARTY-NOTICES.md", "CHANGELOG.md", "tools/rebrand.py"}
+SKIP_FILES = {"LICENSE", "LICENSE-EXCEPTION.txt", "THIRD-PARTY-NOTICES.md", "CHANGELOG.md", "tools/rebrand.py",
+              "README.md", "src/SCSFix.Core/App/welcome.json"}   # their text names SCSKiller on purpose (the fork notice, the welcome)
 SKIP_PREFIX = ("proxy/third_party/", ".github/assets/")
 TEXT_EXT = {".cs", ".cpp", ".h", ".in", ".asm", ".def", ".rc", ".py", ".txt", ".md", ".json", ".xaml", ".csproj", ".props",
             ".slnx", ".ps1", ".yml", ".yaml", ".manifest", ".xml", ".cmake"}
@@ -20,6 +21,7 @@ PROTECT = [
     r"contact@scskiller\.com",
     r"BlueHeisenberg/SCSKiller",
     r"scskiller-feed-v1",                             # the signature domain string of upstream's feed
+    r"Based on SCSKiller by BlueHeisenberg",           # the About page's credit
 ]
 PROT = re.compile("|".join(f"(?:{p})" for p in PROTECT))
 SUBS = [("SCSKiller", "SCSFix"), ("SCSKILLER", "SCSFIX"), ("scskiller", "scsfix"), ("ScsKiller", "ScsFix"), ("scsKiller", "scsFix")]

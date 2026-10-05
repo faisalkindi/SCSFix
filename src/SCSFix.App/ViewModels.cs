@@ -936,6 +936,7 @@ public sealed class DetailVm(string id) : Bindable
         : s.RecorderSkip == ScsFix.SkipManual ? "Not available until you confirm the game's folder (Game folder… above): SCSFix checks all of it for anti-cheat before it records."
         : s.RecorderSkip == ScsFix.SkipModNotChainable ? $"Not available: {ScsFix.NotChainableReason(s.RecorderMod)}."
         : s.RecorderSkip is { } skip ? $"Not available: {skip}."
+        : s.Records11 ? $"Adds a small {(s.Engine!.GraphicsApi.Contains("D3D12") ? "d3d12.dll and d3d11.dll" : "d3d11.dll")} next to the game that writes down the shaders it creates: SCSFix can't read this game's files, so what it records is what it compiles. Remove any time."
         : "Adds a small d3d12.dll next to the game to catch anything the plan missed and time each frame, so this page shows what stuttered. Remove any time."
           + (s.RecorderNote is { } note ? $" ({Sentence(note)})" : "")
           + (s.RecorderRefused is { } why ? $" The last launch wasn't recorded: {why}." : "");

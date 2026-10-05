@@ -31,8 +31,9 @@ public sealed partial class ScsFix : IScsFix
     /// <summary>Our proxy under either name in the folder; one that can't be read counts as ours, as in <see cref="ProxyOnDisk"/>.</summary>
     static bool OurProxyIn(string dir) => IsOurProxy(Path.Combine(dir, "d3d12.dll")) || IsOurProxy(Path.Combine(dir, Proxy11));
 
-    /// <summary>The recorder this game's folder gets as its main file: d3d12.dll, or d3d11.dll for a game that only runs on DirectX 11.</summary>
-    static bool Wants12(GameState s) => s.Engine?.GraphicsApi.Contains("D3D12") == true;
+    /// <summary>The recorder this game's folder gets as its main file: d3d12.dll, or d3d11.dll for a game that only runs on DirectX 11
+    /// (an engine that isn't known, or any other API, keeps d3d12.dll: RecorderSkip decides whether it goes in).</summary>
+    static bool Wants12(GameState s) => s.Engine is not { } e || e.GraphicsApi.Contains("D3D12") || !e.GraphicsApi.Contains("D3D11");
     static string ProxyName(GameState s) => Wants12(s) ? "d3d12.dll" : Proxy11;
     const string RecorderIni = "[scsfix]\r\n; written by SCSFix: record the pipelines this game creates. Removed by 'uninstall recorder'.\r\nmode=record\r\n";
     static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(500), AttributionInterval = TimeSpan.FromSeconds(3);

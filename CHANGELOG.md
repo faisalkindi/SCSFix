@@ -5,6 +5,16 @@ All notable changes to the SCSKiller app and command line. The format follows
 
 ## [Unreleased]
 
+### Added (SCSFix, the fork)
+
+- Renamed to SCSFix: its own data folder (`%LOCALAPPDATA%\SCSFix`), recorder file names (`scsfix.*`), exe, logo and
+  About page. It installs beside SCSKiller. `tools/rebrand.py` redoes the rename after merging upstream.
+- No self-update: the update feed and its keys are SCSKiller's, so the fork never checks, downloads or applies one.
+- Games no reader can read (encrypted Unreal, packed archives, a RE Engine package version the reader doesn't know, a Unity
+  build with no readable shaders) are no longer Unsupported when a recording can help: they go to Needs recording.
+- A DirectX 11 recorder: the recorder installed as `d3d11.dll` records a DirectX 11 game's shaders and tessellation
+  pairs, and the compile replays them. NVIDIA only, like the D3D11 warm. Installed only where the game can't be read.
+
 ## [1.2.2] - 2026-10-04
 
 ### Fixed

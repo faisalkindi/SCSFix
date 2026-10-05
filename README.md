@@ -65,6 +65,9 @@ Measured with SCSFix's pipeline recorder. Your numbers will vary by game, GPU an
   on its own if you let it.
 - **Optional recorder** for games whose pipelines can't be worked out from their files: play a few minutes with it on,
   then compile. It can also record alongside a mod that replaces shaders.
+- **Games SCSKiller can't read** (encrypted, packed, a package format it doesn't know) aren't a dead end here: they
+  go to Needs recording, and the recorder, for DirectX 12 and on NVIDIA also DirectX 11 (it goes in as `d3d11.dll`),
+  captures what the game creates while you play. Games with anti-cheat still can't be recorded.
 - **Frame times per session.** With the recorder on, a game's page graphs your last session and tells the shader
   stutters apart from other hitches. Frame times stay on your PC.
 - **Play button** in the Library and on a game's page: starts the game through its store.

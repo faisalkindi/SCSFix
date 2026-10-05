@@ -246,13 +246,6 @@
                                            Style="{StaticResource Caption}" TextWrapping="Wrap" />
                             </StackPanel>
                         </CheckBox>
-                        <CheckBox IsChecked="{x:Bind Vm.ActiveCheck, Mode=TwoWay}" AutomationProperties.Name="Send an anonymous daily check">
-                            <StackPanel Spacing="2">
-                                <TextBlock Text="Send an anonymous daily check" TextWrapping="Wrap" />
-                                <TextBlock Text="Counts active installs: once a day, the app's version and your GPU vendor, with no identifier. Nothing about your PC or games."
-                                           Style="{StaticResource Caption}" TextWrapping="Wrap" />
-                            </StackPanel>
-                        </CheckBox>
                     </StackPanel>
                 </Border>
 

@@ -464,7 +464,14 @@ and count in one line instead (`ScsFix.PlanCheckLine`: "Checking N games for mor
 
 The planner's `Check` decides a game's status:
 
-- Engine unsupported, or files it can't read → `Unsupported` with the reason.
+- Engine unsupported (the reader says no on purpose) → `Unsupported` with the reason.
+- **Record only** (`EngineInfo.RecordOnly`, set by `EngineReaders.Detect` when no reader could read the game: encrypted,
+  packed, a package version it doesn't know): its index is empty and its plan can only come from a recording
+  (`Planner.CheckRecordOnly`). A DirectX 12 game, and a DirectX 11 game where the D3D11 cache is warmed (NVIDIA,
+  `Planner.D3D11Cache`), is `NeedsRecording` (`Ready` once the recording has pipelines, or D3D11 items), and its reason
+  keeps the reader's: "turn on recording and play for about 5 minutes; its game files can't be read here (…)". Any other
+  API or GPU is `Unsupported` with the reader's own reason. A game with anti-cheat that can't be recorded shows as
+  Unsupported ("needs a recording, which its anti-cheat blocks"), as for any game that needs one.
 - The vendor has `StateIndependentCache` and the engine version has a root-signature rule → `Ready` without a
   recording.
 - A recording exists → `Ready`. Without `StateIndependentCache` (AMD) it must contain draws.
@@ -526,6 +533,21 @@ After a build:
 The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `scsfix.ini`. It forwards to the system
 `d3d12.dll` and records every pipeline, root signature and ray tracing state object the game creates into
 `scsfix.db`, with timings in [`scsfix_creates.csv`](#scsfix_createscsv).
+
+- **The DirectX 11 recorder** is the same binary installed as `d3d11.dll` (`ScsFix.Proxy11`): `DllMain` reads the file
+  name it was loaded under, loads the system `d3d11.dll` instead of `d3d12.dll` and exports `D3D11CreateDevice` and
+  `D3D11CreateDeviceAndSwapChain` (every other export of the system dll is a raw jump to it). A D3D11 shader is created
+  lazily and compiled at its first draw, so there is no pipeline to record, only shaders: each `CreateVertexShader` /
+  `PixelShader` / `ComputeShader` / `GeometryShader` becomes a `'1'` record (see [D3D11 items](#d3d11-items)) with its
+  DXBC as a `'B'` blob, and a hull and a domain shader the game binds together on the immediate context a `'2'` record (a
+  hull or domain shader alone keeps only its blob: it can't be drawn alone). The csv gets a `D` row per create (its `ms`
+  is the create call, never a compile). Not recorded: `CreateGeometryShaderWithStreamOutput`, D3D11 on D3D12, hull/domain
+  binds on a deferred context. Admission, the armed file, the ini, the db, the keys file and the frame times are the
+  D3D12 recorder's, unchanged. The warm replays a recording's `'1'` / `'2'` records like a plan's (`load_file`).
+  It is installed only in a record-only game that may run on DirectX 11, on NVIDIA (`GameState.Records11`): as the only
+  file of a game that only runs on DirectX 11, beside `d3d12.dll` of a game that may run on either (the API is read from
+  the exe's imports, `D3D11 or D3D12` when they don't say). Another `d3d11.dll` is never replaced or chained
+  (`SkipForeignDll11`): alone it keeps the game unrecorded, beside `d3d12.dll` only the DirectX 11 half is left out.
 
 - **Where it's installed** (`ReconcileRecorders`, app only): in every compatible game when "Record in all compatible
   games" is on, unless the game's own switch says otherwise. Compatible means D3D12, supported, no anti-cheat of any
@@ -860,8 +882,8 @@ A driver fault or hang in a ray tracing state object never stops the warm or ski
 
 ### D3D11 items
 
-D3D11 items live in `scsfix_gen.db` only and are replayed after all D3D12 items, with the same counting, stop and
-resume rules.
+D3D11 items live in `scsfix_gen.db` (a plan's) or in `scsfix.db` (the DirectX 11 recorder's) and are replayed after all D3D12
+items, with the same counting, stop and resume rules.
 
 - `'1'` (24 bytes): `u32 stage` (1 VS, 2 PS, 3 DS, 4 HS, 5 GS, 6 CS) + the SHA-1 of a `'B'` blob holding a DXBC
   container. One item per shader.

@@ -27,6 +27,7 @@ public class WelcomeTests
         Assert.Equal(3, WelcomeContent.Default.Paragraphs.Count);
         Assert.Equal("Sign in with Patreon", WelcomeContent.Default.SignIn);
         Assert.StartsWith("Help improve the community shader hash database", WelcomeContent.Default.Share);
+        Assert.Equal("https://scskiller.com/support", WelcomeContent.Default.Link!.Url);   // the fork says whose service that is, and links to it
         var root = new DirectoryInfo(AppContext.BaseDirectory);
         while (!File.Exists(Path.Combine(root.FullName, "SCSFix.slnx"))) root = root.Parent!;
         var served = Path.Combine(root.FullName, "server-rs", "content", "welcome.json");

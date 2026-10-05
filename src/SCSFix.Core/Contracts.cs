@@ -329,7 +329,7 @@ public sealed record Settings(int Threads, WarmPriority Priority, DriverUpdateMo
     bool RecordAllGames = true,     // unless a game's RecorderOverride says otherwise
     int RecordingLimitMB = 256,     // per game: the recorder's db plus SCSFix's copy of it; 0 = unlimited
     bool NotifyNewShaders = true,   // a notification when compiled games have new pipelines to compile (NewShaders)
-    bool ActiveCheck = true,        // the anonymous daily check that counts active installs (ScsFix.ActiveCheck); off = nothing is sent
+    bool ActiveCheck = false,       // FORK: off, and never wired (App.xaml.cs): the anonymous daily check that counts active installs is SCSKiller's server's
     string? GpuNoticeDismissed = null);   // the GPU name whose "doesn't compile on this GPU" notice was closed (Format.GpuNotice)
 
 public enum QueueStage { Waiting, Indexing, Planning, Materializing, Warming, Paused, Done, Failed, Stopped }

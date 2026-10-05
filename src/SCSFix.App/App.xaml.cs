@@ -61,7 +61,7 @@ public partial class App : Application
             // the entitlements first: the update check picks the channel they allow
             real.UserFetch = async () => { await Account.RefreshAsync(); await Updater.CheckAsync(); };
             // not before the welcome, which says it is sent and where to turn it off
-            real.ActiveCheck = new ActiveCheck(AppStore.DefaultDir, () => real.Settings is { ActiveCheck: true, WelcomeSeen: true }, real.Vendor.Vendor);
+            real.ActiveCheck = new ActiveCheck(AppStore.DefaultDir, () => false, real.Vendor.Vendor);   // FORK: the daily ping counts installs on SCSKiller's server: SCSFix never sends it
             // not in the unattended --driver-updated launch: nobody at the PC, no game folder is written
             real.ManageRecorders = !driverUpdated;
             real.CleanupHelper = Environment.ProcessPath;
@@ -100,7 +100,7 @@ public partial class App : Application
         }
 
         // design data: the bundled text, no network
-        if (!Core.Settings.WelcomeSeen) ShowWelcome(Core is FakeScsFix ? Task.FromResult<WelcomeContent?>(null) : WelcomeContent.FetchAsync());
+        if (!Core.Settings.WelcomeSeen) ShowWelcome(Task.FromResult<WelcomeContent?>(null));   // FORK: the bundled text; SCSKiller's server's welcome would speak for SCSKiller
 
         tray = CreateTray();
         UpdateTip();

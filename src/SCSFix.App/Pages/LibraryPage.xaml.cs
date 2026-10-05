@@ -139,7 +139,7 @@ public sealed partial class LibraryPage : Page
     {
         var row = RowOf(sender);
         if (!await App.ConfirmAsync(this, $"Record {row.Name}?",
-                "SCSFix adds a small d3d12.dll next to the game that writes down every pipeline it creates. " +
+                "SCSFix adds a small d3d12.dll (a DirectX 11 game gets d3d11.dll) next to the game that writes down every pipeline or shader it creates. " +
                 "Play for about 5 minutes, close the game, then add it to the compile queue. You can remove it any time from the game's page.",
                 "Add recorder", ContentDialogButton.Primary)) return;
         try { await Task.Run(() => App.Core.InstallRecorder(row.Id)); }   // file IO and the game's re-evaluation
