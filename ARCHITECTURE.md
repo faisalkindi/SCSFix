@@ -799,7 +799,11 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   the process's `dxgi.dll` and hooks its `CreateSwapChain*` slots, then `Present` / `Present1` of every swap chain it
   creates, keeping the original per vtable (a wrapper's swap chain and the real one differ). A swap chain whose vtable lies outside
   `dxgi.dll` (a frame-generation layer: FSR 3, Streamline) isn't hooked, with one log line per vtable: patching a layer's vtable
-  crashed such games. A frame is the QPC at which
+  crashed such games. A present that reaches the hook on a vtable it didn't patch (an overlay copied a patched vtable into the
+  object) takes the original of the patched vtable the copy equals in most of slots 0-17, and is logged once; it is never failed
+  (`selftest vtcopy`: failing it, DXGI_ERROR_INVALID_CALL, was what Dragon's Dogma 2 under REFramework did on every Present before
+  it crashed). Under a loader that reports this dll from another folder than the exe's (REFramework's storage folder, see
+  Loading) frame times aren't measured at all: REFramework hooks the same swap chain slots over ours. A frame is the QPC at which
   the outermost present of a thread returns, as PresentMon's `FrameTime` counts (measured equal to PresentMon frame for
   frame); nested presents and `DXGI_PRESENT_TEST` aren't frames. The hook queues the timestamp and a thread writes the
   file once a second. The file is u32 records: `0xFFFFFFFF` + u64 unix ms (the csv's `#session` stamp), u64 microseconds since the recorder loaded

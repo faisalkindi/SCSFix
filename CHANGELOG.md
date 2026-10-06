@@ -30,6 +30,12 @@ All notable changes to the SCSKiller app and command line. The format follows
 - Recording recorded nothing in a game that makes its DirectX 12 device through Streamline's interposer (Dead Space): the interposer
   calls the system `d3d12.dll` by path, around the recorder. The recorder now hooks that function when `sl.interposer.dll` is beside
   the exe, and a D3D11-role recorder loads the D3D12 one early. `selftest slcreate` covers it; not yet seen in Dead Space itself.
+- Dragon's Dogma 2 crashed within minutes of the recorder being installed, with REFramework and OptiScaler in the game: REFramework
+  logged `Present failed: -7785ffff` (DXGI_ERROR_INVALID_CALL) on every frame from the moment the recorder hooked the swap chain.
+  The frame-time hook returned that when a swap chain's vtable was a copy of a patched one (an earlier change in this release had
+  stopped it taking the original of the vtable the copy matches). It takes it again, and logs it once, and frame times aren't
+  measured at all when the recorder is loaded from REFramework's storage folder. `selftest vtcopy` reproduces the failure;
+  the game itself isn't tested.
 - The recorder crashed games whose swap chain comes from a frame-generation layer (FSR 3, Streamline): a vtable outside `dxgi.dll`
   is no longer patched (issue 22). It records from the exe's folder when REFramework loads it from `_storage_` (issue 2).
   Both are covered by `selftest framegen` and `selftest dirrewrite`.

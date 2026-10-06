@@ -2386,12 +2386,27 @@ static void* sc_orig(void* sc, std::atomic<void*> ScVt::*slot) {
     int n = g_nscvt.load(std::memory_order_acquire);
     for (int i = 0; i < n; ++i)
         if (g_scvt[i].vt == vt) return g_scvt[i].*slot;
-    // an overlay that copied a hooked vtable into the object: the first original of the slot, but only for an object of dxgi's own
-    // class; another class's Present is never what an original of another class's can stand for
-    if (dxgi_class(vt))
-        for (int i = 0; i < n; ++i)
-            if (void* p = g_scvt[i].*slot) return p;
-    return nullptr;
+    // An overlay (REFramework) that gave the object a copy of a patched vtable, our hook still in the slot: the original of the patched
+    // vtable it equals in most of the other slots, so a copy of a wrapper's vtable gets the wrapper's Present, not dxgi's. (Failing
+    // such a present, as a first fix for frame generation layers did, made every Present of Dragon's Dogma 2 under REFramework return
+    // DXGI_ERROR_INVALID_CALL, and the game then crashed.) Slots 0-17 are in every swap chain's vtable, the two hooked ones apart.
+    void* best = nullptr;
+    int best_eq = -1;
+    for (int i = 0; i < n; ++i)
+        if (void* p = g_scvt[i].*slot) {
+            int eq = 0;
+            void** r = g_scvt[i].vt;
+            for (int k = 0; k < 18; ++k) eq += k != SLOT_PRESENT && vt[k] == r[k];
+            if (eq > best_eq) best_eq = eq, best = p;
+        }
+    static std::mutex told_mx;
+    static std::vector<void**> told;
+    std::lock_guard l(told_mx);
+    if (best && told.size() < 8 && std::find(told.begin(), told.end(), vt) == told.end()) {
+        told.push_back(vt);
+        logf("frames: a present on a swap chain vtable %p (%ls) that this recorder didn't patch (a copy of one): using the original of the patched vtable it equals in %d of 17 other slots", (void*)vt, module_of(vt).c_str(), best_eq);
+    }
+    return best;
 }
 
 struct FrameAt { int64_t qpc; void* sc; };
@@ -2561,8 +2576,13 @@ static void frame_writer() {
     }
 }
 
+static bool g_redirected;  // loaded from another folder than the exe's (REFramework's storage): see DllMain
 static void frame_hooks() {
     if (g_warm) return;
+    // REFramework (which loads the game folder's DLLs from its storage folder) hooks the same swap chain slots, over ours and after
+    // copying vtables: Dragon's Dogma 2 failed every Present under it with this recorder's frame hook on, and crashed. Frame times
+    // are the one part of the recorder that sits on the game's own present path, so there they aren't measured.
+    if (g_redirected) return logf("frames: off: this dll was loaded from another folder than the exe's (REFramework), whose hooks meet ours on the swap chain");
     wchar_t on[8];  // not cfg(): a staged warm child may inherit SCSFIX_* variables
     GetPrivateProfileStringW(L"scsfix", L"frames", L"1", on, 8, (g_dir + L"scsfix.ini").c_str());
     if (!wcscmp(on, L"0")) return logf("frames: off (scsfix.ini frames=0)");
@@ -3085,6 +3105,7 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID reserved) {
             if (_wcsicmp(exe_dir.c_str(), g_dir.c_str()) && GetFileAttributesW((exe_dir + me).c_str()) != INVALID_FILE_ATTRIBUTES) {
                 swprintf_s(dir_note, L"dir: loaded as %ls, which isn't the exe's folder; using the exe's, %ls, which holds a %ls too", p, exe_dir.c_str(), me);
                 g_dir = exe_dir;
+                g_redirected = true;
             }
         }
     }

@@ -3148,6 +3148,49 @@ static int frames_rows(const std::wstring& dir, int n) {
     return 0;
 }
 
+// `selftest vtcopy`: an overlay (REFramework) that gives a swap chain object a heap copy of its patched vtable, keeping the
+// proxy's hook in the slot, and presents through it: the hook must find the original through the copy (the copy equals the
+// patched vtable in every other slot), not fail the present. Dragon's Dogma 2 under REFramework failed every Present with
+// DXGI_ERROR_INVALID_CALL, and then crashed, when the hook knew only the vtables it had patched itself.
+static int vtcopy_rows(const std::wstring& dir) {
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
+    HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
+    CHECK(m);
+    auto proxy_create = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
+    IDXGIFactory4* f = nullptr;
+    IDXGIAdapter* warp = nullptr;
+    CHECK(proxy_create && SUCCEEDED(CreateDXGIFactory2(0, IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
+    ID3D12Device* dev = nullptr;
+    CHECK(SUCCEEDED(proxy_create(warp, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev))));
+    HWND wnd = CreateWindowExW(0, L"STATIC", L"scsfix vtcopy", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, nullptr, nullptr, nullptr, nullptr);
+    D3D12_COMMAND_QUEUE_DESC qd = {};
+    ID3D12CommandQueue* q = nullptr;
+    DXGI_SWAP_CHAIN_DESC1 d = {64, 64, DXGI_FORMAT_R8G8B8A8_UNORM, FALSE, {1, 0}, DXGI_USAGE_RENDER_TARGET_OUTPUT, 2};
+    d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    IDXGISwapChain1* sc = nullptr;
+    CHECK(wnd && SUCCEEDED(dev->CreateCommandQueue(&qd, IID_PPV_ARGS(&q))) && SUCCEEDED(f->CreateSwapChainForHwnd(q, wnd, &d, nullptr, nullptr, &sc)));
+    DXGI_PRESENT_PARAMETERS p = {};
+    CHECK(SUCCEEDED(sc->Present(0, 0)) && SUCCEEDED(sc->Present1(0, 0, &p)));   // through the patched vtable itself
+    void** vt = *(void***)sc;
+    void** copy = (void**)malloc(64 * sizeof(void*));
+    memcpy(copy, vt, 64 * sizeof(void*));   // 64 slots: more than a swap chain has, whatever follows is never called
+    *(void***)sc = copy;
+    HRESULT a = sc->Present(0, 0), b = sc->Present1(0, 0, &p);
+    printf("present through the copy: 0x%08x, present1: 0x%08x\n", (unsigned)a, (unsigned)b);
+    CHECK(SUCCEEDED(a) && SUCCEEDED(b));
+    std::string log;
+    for (int tries = 0; tries < 20 && log.find("didn't patch (a copy of one)") == std::string::npos; ++tries, Sleep(100)) {
+        log.clear();
+        if (FILE* lf = _wfopen((dir + L"scsfix.log").c_str(), L"rb")) {
+            for (char buf[4096]; fgets(buf, sizeof buf, lf);) log += buf;
+            fclose(lf);
+        }
+    }
+    CHECK(log.find("didn't patch (a copy of one)") != std::string::npos);   // and says so once
+    printf("PASS vtcopy: a copied vtable's presents reached the original\n");
+    return 0;
+}
+
 // `selftest framesheld`: presents on WARP through the proxy while scsfix_frames.bin is held open by another handle, so
 // the proxy's first writes of it fail, then one present after it is let go. Prints "drift_us <n>": how far that frame's
 // time in the file is from its QueryPerformanceCounter, from the file's launch record (frames lost, never time).
@@ -3569,6 +3612,7 @@ static int dirrewrite_parent(const std::wstring& self, const std::wstring& dir) 
         fclose(lf);
     }
     CHECK(log.find("using the exe's") != std::string::npos && log.find("hook: device") != std::string::npos);
+    CHECK(log.find("frames: off: this dll was loaded from another folder") != std::string::npos);   // REFramework's hooks meet ours on the swap chain: not hooked
     CHECK(!fs::exists(t + L"sub\\scsfix.log") && !fs::exists(t + L"sub\\scsfix.db") && !fs::exists(t + L"sub\\scsfix_creates.csv"));   // nothing in the folder it was reported under
     printf("PASS dirrewrite: the recorder worked from the exe's folder\n");
     return 0;
@@ -3673,6 +3717,7 @@ int wmain(int argc, wchar_t** argv) {
     if (argc > 1 && !wcscmp(argv[1], L"d3d11rec")) return d3d11rec_parent(a, dir);
     if (argc > 1 && !wcscmp(argv[1], L"d3d11recchild")) return d3d11rec_child(dir);
     if (argc > 1 && !wcscmp(argv[1], L"framegen")) return framegen_rows(dir);
+    if (argc > 1 && !wcscmp(argv[1], L"vtcopy")) return vtcopy_rows(dir);
     if (argc > 1 && !wcscmp(argv[1], L"slcreate")) return slcreate_parent(a, dir);
     if (argc > 2 && !wcscmp(argv[1], L"slcreatechild")) return slcreate_child(argv[2]);
     if (argc > 1 && !wcscmp(argv[1], L"dirrewrite")) return dirrewrite_parent(a, dir);
