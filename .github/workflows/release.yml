@@ -36,16 +36,16 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c   # v8.0.1
         with:
-          name: SCSKiller-unsigned   # SCSKiller.zip + SHA256SUMS-unsigned.txt
+          name: SCSFix-unsigned   # SCSFix.zip + SHA256SUMS-unsigned.txt
 
       - name: Check the zip against the sums
-        run: grep '  SCSKiller.zip$' SHA256SUMS-unsigned.txt | sha256sum -c -
+        run: grep '  SCSFix.zip$' SHA256SUMS-unsigned.txt | sha256sum -c -
 
       # Provenance in Sigstore's public log: stable builds on the public repo only (§3.1).
       - if: ${{ !github.event.repository.private }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8   # v4.2.2
         with:
-          subject-path: SCSKiller.zip
+          subject-path: SCSFix.zip
 
       - name: Release notes from CHANGELOG.md
         env:
@@ -63,5 +63,5 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           pre=(); [[ "$TAG" == *-* ]] && pre=(--prerelease)
-          gh release create "$TAG" SCSKiller.zip SHA256SUMS-unsigned.txt --draft --verify-tag "${pre[@]}" \
-            --title "SCSKiller $TAG" --notes-file notes.md
+          gh release create "$TAG" SCSFix.zip SHA256SUMS-unsigned.txt --draft --verify-tag "${pre[@]}" \
+            --title "SCSFix $TAG" --notes-file notes.md

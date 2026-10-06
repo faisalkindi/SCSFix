@@ -1,6 +1,6 @@
-# SCSKiller architecture
+# SCSFix architecture
 
-SCSKiller compiles a game's pipelines into the GPU driver's shader cache before the game runs, so the game finds them
+SCSFix compiles a game's pipelines into the GPU driver's shader cache before the game runs, so the game finds them
 cached instead of compiling them mid-play. It reads the game's shaders from its files (or from a recording of a play
 session), plans which pipelines to create, and replays them in a separate process that the driver treats as the game.
 
@@ -14,9 +14,9 @@ session), plans which pipelines to create, and replays them in a separate proces
 - [Planner](#planner)
 - [Readiness rules](#readiness-rules)
 - [Recorder](#recorder)
-- [scskiller_warm.exe protocol](#scskiller_warmexe-protocol)
+- [scsfix_warm.exe protocol](#scsfix_warmexe-protocol)
 - [Ray tracing state objects](#ray-tracing-state-objects)
-- [scskiller_creates.csv](#scskiller_createscsv)
+- [scsfix_creates.csv](#scsfix_createscsv)
 - [Plan file](#plan-file)
 - [Clear cache](#clear-cache)
 
@@ -26,12 +26,12 @@ session), plans which pipelines to create, and replays them in a separate proces
    the user added by their exe (`manual-games.json` in the data folder): the pick is resolved like a store's install
    (a launcher stub to its Shipping exe) and a game folder is suggested from its layout (above `Engine\` or `bin\`, else
    the exe's folder; nothing above it is read, since the folders beside it may be other games). The user confirms or
-   changes that folder; a drive, a store's or Windows' folder of many games, a folder holding a game SCSKiller lists,
+   changes that folder; a drive, a store's or Windows' folder of many games, a folder holding a game SCSFix lists,
    or one whose subfolders look like several games is refused (`ManualSource.RootProblem`). With its folder confirmed
    the game follows the recorder rules of any game: the anti-cheat check covers that whole folder and the exe's
    folder, plus the names directly in each folder above it up to a drive or a folder of many (a confirmed `win64`
    still sees the `BattlEye` folder beside it), and the recorder is armed only for the folder that was checked. A new or renamed file disarms it
-   until the next clean check unless it is of a data type (`ScsKiller.DataTypes`: a log, an ini, a screenshot, a save)
+   until the next clean check unless it is of a data type (`ScsFix.DataTypes`: a log, an ini, a screenshot, a save)
    and doesn't start with "MZ"; so do anything named like an anti-cheat marker, a folder moved in with contents and a
    changed exe. A launch the proxy passes through leaves
    its reason beside the exe's ledger entry (`<entry>.refused`), which the game's page shows. An entry from before the
@@ -45,7 +45,7 @@ session), plans which pipelines to create, and replays them in a separate proces
    into a hash-only plan: pipeline templates, root signatures and items naming shaders by SHA-1.
 4. **Materialize.** The plan's shaders are read from the install into a work folder. Nothing of the game is stored
    beyond that folder, which is deleted after the warm.
-5. **Warm.** `scskiller_warm.exe` stages a copy of itself named like the game's exe and creates every item on a D3D12
+5. **Warm.** `scsfix_warm.exe` stages a copy of itself named like the game's exe and creates every item on a D3D12
    (or D3D11) device. The driver keys its cache on the exe name, so the game finds those compiles cached.
 
 Games whose files don't say enough (engines that build root signatures at run time, AMD's state-dependent cache) need a
@@ -58,30 +58,30 @@ Everything vendor- or engine-specific sits behind one interface: a new GPU vendo
 
 | Path | What |
 |---|---|
-| `src/SCSKiller.Core/Contracts.cs` | Shared interfaces and records |
-| `src/SCSKiller.Core/Games/` | `IGameSource` for Steam, Epic Games, EA app, GOG, Ubisoft Connect, Xbox (PC), Battle.net, PURPLE, HoYoPlay, Gaijin's launcher and games the user added; anti-cheat detection |
-| `src/SCSKiller.Core/Unreal/` | `IEngineReader` for Unreal Engine (through CUE4Parse) |
-| `src/SCSKiller.Core/Unity/` | `IEngineReader` for Unity |
-| `src/SCSKiller.Core/FromSoft/` | `IEngineReader` for FromSoftware games |
-| `src/SCSKiller.Core/ReEngine/` | `IEngineReader` for Capcom's RE Engine |
-| `src/SCSKiller.Core/RedEngine/` | `IEngineReader` for REDengine 3 (The Witcher 3, DX12) |
-| `src/SCSKiller.Core/Northlight/` | `IEngineReader` for Remedy's Northlight (Control, DX12) |
-| `src/SCSKiller.Core/Dagor/` | `IEngineReader` for Gaijin's Dagor Engine (War Thunder) |
-| `src/SCSKiller.Core/Carved/` | `IEngineReader` for any game that ships raw DXBC/DXIL containers in its files |
-| `src/SCSKiller.Core/Planning/` | The planner, root-signature rules, the plan and recording formats, materialization |
-| `src/SCSKiller.Core/Vendors/` | NVIDIA and AMD backends and their per-application cache (`IAppCache`) |
-| `src/SCSKiller.Core/Warming/` | `IWarmer`: runs `scskiller_warm.exe` and parses its output |
-| `src/SCSKiller.Core/App/` | The `ScsKiller` facade, state store, queue, driver-update check, recorder install, account and community database |
-| `src/SCSKiller.Cli/` | The `scskiller` command line |
-| `src/SCSKiller.App/` | The WinUI 3 app (unpackaged) |
-| `proxy/` | Native code: the recorder `d3d12.dll`, `scskiller_warm.exe`, and `selftest.exe`, which measures driver cache behaviour |
-| `tests/SCSKiller.Tests/` | xUnit tests, one folder per area |
+| `src/SCSFix.Core/Contracts.cs` | Shared interfaces and records |
+| `src/SCSFix.Core/Games/` | `IGameSource` for Steam, Epic Games, EA app, GOG, Ubisoft Connect, Xbox (PC), Battle.net, PURPLE, HoYoPlay, Gaijin's launcher and games the user added; anti-cheat detection |
+| `src/SCSFix.Core/Unreal/` | `IEngineReader` for Unreal Engine (through CUE4Parse) |
+| `src/SCSFix.Core/Unity/` | `IEngineReader` for Unity |
+| `src/SCSFix.Core/FromSoft/` | `IEngineReader` for FromSoftware games |
+| `src/SCSFix.Core/ReEngine/` | `IEngineReader` for Capcom's RE Engine |
+| `src/SCSFix.Core/RedEngine/` | `IEngineReader` for REDengine 3 (The Witcher 3, DX12) |
+| `src/SCSFix.Core/Northlight/` | `IEngineReader` for Remedy's Northlight (Control, DX12) |
+| `src/SCSFix.Core/Dagor/` | `IEngineReader` for Gaijin's Dagor Engine (War Thunder) |
+| `src/SCSFix.Core/Carved/` | `IEngineReader` for any game that ships raw DXBC/DXIL containers in its files |
+| `src/SCSFix.Core/Planning/` | The planner, root-signature rules, the plan and recording formats, materialization |
+| `src/SCSFix.Core/Vendors/` | NVIDIA and AMD backends and their per-application cache (`IAppCache`) |
+| `src/SCSFix.Core/Warming/` | `IWarmer`: runs `scsfix_warm.exe` and parses its output |
+| `src/SCSFix.Core/App/` | The `ScsFix` facade, state store, queue, driver-update check, recorder install, account and community database |
+| `src/SCSFix.Cli/` | The `scsfix` command line |
+| `src/SCSFix.App/` | The WinUI 3 app (unpackaged) |
+| `proxy/` | Native code: the recorder `d3d12.dll`, `scsfix_warm.exe`, and `selftest.exe`, which measures driver cache behaviour |
+| `tests/SCSFix.Tests/` | xUnit tests, one folder per area |
 
 Building and running the tests: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Data locations
 
-Everything lives under `%LOCALAPPDATA%\SCSKiller\`:
+Everything lives under `%LOCALAPPDATA%\SCSFix\`:
 
 - `settings.json`.
 - `games\<game id, ':' replaced by '_'>\` when that is a plain folder name; an id that isn't (separators, `..`,
@@ -119,10 +119,10 @@ pipelines, not taken from documentation. `VendorCaps` holds the result per vendo
 
 ### NVIDIA, D3D12
 
-- **Keyed on the exe file name**, not its path or contents, case-insensitively. A staged copy of `scskiller_warm.exe`
+- **Keyed on the exe file name**, not its path or contents, case-insensitively. A staged copy of `scsfix_warm.exe`
   named like the game fills that game's cache (`CacheKeyedByExeName`).
 - **A packaged (Xbox) game is keyed on its package identity** instead (`PackageKeyed`). Its warm runs with the game's
-  identity: `scskiller_warm --package <app user model id>` starts the staged copy through the desktop app activator.
+  identity: `scsfix_warm --package <app user model id>` starts the staged copy through the desktop app activator.
   That process inherits no handles and has no console, so it finds its parent by process id and writes its output
   through named pipes the parent relays. If activation fails, the warm runs under the exe name alone, and the game shows
   as not reached once its own key is seen.
@@ -147,7 +147,7 @@ pipelines, not taken from documentation. `VendorCaps` holds the result per vendo
   the game starts, resuming from its `done` afterwards.
 - The records store an opaque 128-bit key over the whole root signature plus the compiled code; none of the D3D12
   inputs (root signature bytes, shader containers or their hashes) can be recovered from the cache.
-- After a driver update, no D3D12 cache file older than the install remains, which is why SCSKiller recompiles after
+- After a driver update, no D3D12 cache file older than the install remains, which is why SCSFix recompiles after
   one.
 - The D3D12 runtime version is not part of the key: pipelines compiled under the system runtime hit under a game's
   Agility SDK runtime and the reverse. The warm uses the system runtime. A game's Agility runtime older than the system's
@@ -180,9 +180,9 @@ pipelines, not taken from documentation. `VendorCaps` holds the result per vendo
   profile wins over an unprofiled app name (`AmdAppCache.AgsKey`). Unreal 4.25-5.6 creates its device this way on AMD
   with the project name as `pAppName`; 4.20-4.24 create a plain device (only `agsInit`), though every version links
   AGS and exports its functions. Tiny Tina's Wonderlands (a 4.20 fork, project `OakGame`) holds `85c2b2e5`; SILENT
-  HILL: Townfall (5.6) holds `dc72f790`, FNV-1a of `Townfall`. A warm registers the game's names (`scskiller_warm
+  HILL: Townfall (5.6) holds `dc72f790`, FNV-1a of `Townfall`. A warm registers the game's names (`scsfix_warm
   --ags`, `AmdAgs.Of`: Unreal 4.25 or later, AGS linked, project name known) only where that is proven
-  (`ScsKiller.AgsFor`): the game's own process was seen holding that key and not its plain key, or, before the game
+  (`ScsFix.AgsFor`): the game's own process was seen holding that key and not its plain key, or, before the game
   is seen, the app name is a measured one (`AmdAppCache.ProvenAgsApp`). Otherwise it warms a plain device. If the
   game's keys aren't known and its first launch after an AGS warm still compiled more than `PartlyWarmedShare` of its
   pipelines, the warm counts as a miss (`GameRecord.AgsMissed`): the game is Stale ("the compile didn't reach this
@@ -197,7 +197,7 @@ pipelines, not taken from documentation. `VendorCaps` holds the result per vendo
   live device holds open are neither counted nor deleted. A device created or ending under a name refreshes that key's
   files; anything that reads a file's contents refreshes it too, so the app only lists names and sizes and queries
   attributes and handles. A warmed game with a warm's file gone is Stale (`GameRecord.WarmedFiles`), and the queue
-  warns when its estimated growth (`ScsKiller.CacheGrowth`) is more than the room left (`AmdAppCache.QueueWarning`).
+  warns when its estimated growth (`ScsFix.CacheGrowth`) is more than the room left (`AmdAppCache.QueueWarning`).
   `selftest dxcfill` grows the cache under a throwaway name to measure this.
 - Entries are written during the run, not at exit.
 - **The cache is per stage but not state-independent** (`StateIndependentCache = false`, `PerStageCache = true`). With
@@ -223,12 +223,12 @@ pipelines, not taken from documentation. `VendorCaps` holds the result per vendo
   entries it keeps, and under which keys, varies with concurrency and with which sibling of a shader set compiles first.
   For some games a warm on many threads leaves most of the game's own creates compiling. So:
   - **Judged by the first launch**: after a complete AMD warm, the first recorder session that ends and holds at least
-    `ScsKiller.MinJudgedCreates` creates is kept (`GameRecord.FirstLaunch`). If more than `ScsKiller.PartlyWarmedShare`
+    `ScsFix.MinJudgedCreates` creates is kept (`GameRecord.FirstLaunch`). If more than `ScsFix.PartlyWarmedShare`
     (20%) of them compiled, the game shows "Partly warmed" and offers a careful compile.
   - **Careful compile** (`GameRecord.Careful`, the game's "Careful compile" switch, CLI `compile <game> --careful`):
     the recorded PSOs are split into passes so that no pass holds two with the same shader set (`Warming.WarmPasses`,
-    at most `WarmPasses.MaxPasses` passes); each pass is its own `scskiller_warm --pass` process on at most
-    `ScsKiller.AmdCarefulThreads` (4) threads, then the plan's other items run in one process at the usual thread count.
+    at most `WarmPasses.MaxPasses` passes); each pass is its own `scsfix_warm --pass` process on at most
+    `ScsFix.AmdCarefulThreads` (4) threads, then the plan's other items run in one process at the usual thread count.
     Without a recording it's an ordinary warm. The choice persists, so a driver update's re-warm is careful too.
 - Ray tracing and D3D11 are cached per name too. `%LOCALAPPDATA%\D3DSCache` is the Windows runtime's cache, not AMD's.
 
@@ -236,7 +236,7 @@ pipelines, not taken from documentation. `VendorCaps` holds the result per vendo
 
 Keyed on the exe file name on both vendors. Creating a shader is lazy: the driver compiles at the first draw or
 dispatch that uses it, and caches per shader, not per pipeline. On NVIDIA blend, render-target format, input layout,
-depth, MSAA and SRV formats don't change the result, so SCSKiller warms D3D11 games on NVIDIA only (`Planner.D3D11Cache`).
+depth, MSAA and SRV formats don't change the result, so SCSFix warms D3D11 games on NVIDIA only (`Planner.D3D11Cache`).
 On AMD the input layout recompiles the VS, so a D3D11 warm there would need the game's real layouts.
 
 ### Ray tracing
@@ -254,7 +254,7 @@ Both vendors cache ray tracing state objects on disk per exe name, and both hit 
 
 ### Other vendors and Vulkan
 
-Intel and other vendors are unmeasured, so SCSKiller reports them as unsupported.
+Intel and other vendors are unmeasured, so SCSFix reports them as unsupported.
 
 Vulkan games aren't supported. NVIDIA's driver keeps Vulkan pipelines keyed on the exe name (`NVIDIA\GLCache`), which
 Steam can redirect per game; AMD's Vulkan cache (`AMD\VkCache`) is keyed on the exe's full path, so a staged warm can't
@@ -456,9 +456,9 @@ recording flags as built at run time or by a mod (`'L'`) are counted apart: they
 
 When a new planner version rebuilds a warmed game's plan, the new plan's records are compared with the plan the last
 warm replayed (`GameRecord.PlanItems`, `WarmedPlanItems`). A plan that adds nothing keeps the game Warmed; one that
-adds pipelines marks it Stale with the count ("SCSKiller can now compile N more pipelines for this game"). The app
+adds pipelines marks it Stale with the count ("SCSFix can now compile N more pipelines for this game"). The app
 rebuilds such plans while the PC is idle, as plan-only queue items (`QueueItem.PlanCheck`) that queue lists leave out
-and count in one line instead (`ScsKiller.PlanCheckLine`: "Checking N games for more to compile (while idle)").
+and count in one line instead (`ScsFix.PlanCheckLine`: "Checking N games for more to compile (while idle)").
 
 ## Readiness rules
 
@@ -474,18 +474,18 @@ The planner's `Check` decides a game's status:
 After a build:
 
 - **Partial plan**: when the pre-emit guard left out more than 10% of the stage sets, the game stays Ready but its
-  reason says a recording compiles the rest (`ScsKiller.IsPartial`).
+  reason says a recording compiles the rest (`ScsFix.IsPartial`).
 - **Ray tracing**: when more than 10% of the index's DXIL libraries have no synthesized collection and no recording has
-  ray tracing, the game needs a recording for ray-traced effects; the rest still compiles (`ScsKiller.NeedsRtRecording`).
+  ray tracing, the game needs a recording for ray-traced effects; the rest still compiles (`ScsFix.NeedsRtRecording`).
   A recording imported after the plan was built may have the ray tracing (inline RayQuery PSOs, as Unreal 5's hardware
   Lumen traces, or state objects): until the plan is rebuilt nothing is asked for, and the app queues a plan check
-  (`ScsKiller.RtPlanCheck`). A recorded launch of 5 minutes or more without a ray tracing state object
+  (`ScsFix.RtPlanCheck`). A recorded launch of 5 minutes or more without a ray tracing state object
   (`GameRecord.RtUnseen`, from the session csv) whose recording the plan still finds no ray tracing in means the
   player's setup doesn't use it: the game is Ready or Warmed with a note, and the page still counts the libraries as
   not compiled. A later launch with a state object clears it.
   Unreal 5 whose index has shaders that trace rays inline (`ShaderInfo.InlineRayTracing`, counted in
   `PlanStats.RtInline`) doesn't need a recording for its DXIL libraries: hardware Lumen traces inline, and the libraries
-  serve passes a game may never run, such as path tracing (`ScsKiller.RtInlineCovers`). The libraries stay counted as
+  serve passes a game may never run, such as path tracing (`ScsFix.RtInlineCovers`). The libraries stay counted as
   uncovered, the reason says only a recording compiles them, and a recorded state object takes the DXR path. A plan
   from before this was counted that asks for a recording is planned again by the plan check. An Unreal game whose
   Windows device profile sets r.RayTracing.AllowPipeline=0 (`UnrealRhi.RtPipelinesOff`, `EngineInfo.NoRtPipelines`)
@@ -493,7 +493,7 @@ After a build:
   On AMD this always applies, since only recorded objects can be warmed. The plan's uncovered count
   (`PlanStats.RtUncovered`) is the libraries in neither a synthesized collection nor a recorded state object, also when
   the recording has ray tracing; the game page shows it.
-- **New pipelines since the warm** (`ScsKiller.PendingOf`), derived whenever the game is evaluated, never counted up.
+- **New pipelines since the warm** (`ScsFix.PendingOf`), derived whenever the game is evaluated, never counted up.
   After a complete warm, nothing that was an input to it counts; anything new, or newly given a blob it names, counts;
   a pipeline that won't compile here may count once, until the next warm takes it as an input.
   Inputs (`WarmInputs`): every record of the recording, the community recording while one is in use, the plan, and for a
@@ -508,14 +508,14 @@ After a build:
   it compiles, taken as it starts and never again: the recordings as it prepares them (imports and community downloads wait meanwhile), and its
   plan. What counts is each input the key file lacks, or holds without a blob that is at hand now (losing one doesn't
   count), less the pipelines that crash this driver. Of that, the plan's planner-made records (its key
-  file) are, after a newer planner rebuilt the plan, "SCSKiller can now compile N more pipelines"; otherwise they add to
+  file) are, after a newer planner rebuilt the plan, "SCSFix can now compile N more pipelines"; otherwise they add to
   "N new pipelines; compile again to include them" ("recorded" when all are); their sum is the new-shaders
   notification's count. The result is cached on every input (each by size, write time and a hash of its first and last
   4 KB). A key file is read only when its contents hash to its name; one damaged, missing or unreadable, or none (a
   warm from before warms kept one), is an unknown baseline, under which everything counts and the game
   is Stale ("compile again: what the last compile replayed is no longer known"). Key files are written, and the plan and
   warm ones the stored record doesn't name deleted once an hour old with the temp files of their interrupted writes,
-  under the record's lock. Cached sets (`KeyFiles`) are dropped on every write SCSKiller makes, at most 2 million keys in
+  under the record's lock. Cached sets (`KeyFiles`) are dropped on every write SCSFix makes, at most 2 million keys in
   all; a larger set is computed each time. The app's watcher drops them all once none was asked for in 5 minutes, then
   runs a full compacting collection once the window is hidden or minimized (it pauses the app; a background collection
   keeps the pages committed), so a scan's peak goes back to Windows while the app idles in the notification area.
@@ -523,9 +523,9 @@ After a build:
 
 ## Recorder
 
-The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `scskiller.ini`. It forwards to the system
+The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `scsfix.ini`. It forwards to the system
 `d3d12.dll` and records every pipeline, root signature and ray tracing state object the game creates into
-`scskiller.db`, with timings in [`scskiller_creates.csv`](#scskiller_createscsv).
+`scsfix.db`, with timings in [`scsfix_creates.csv`](#scsfix_createscsv).
 
 - **Where it's installed** (`ReconcileRecorders`, app only): in every compatible game when "Record in all compatible
   games" is on, unless the game's own switch says otherwise. Compatible means D3D12, supported, no anti-cheat of any
@@ -534,8 +534,8 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   removal) checks first that the game isn't running (`GameFolderWrite`, the watcher and the uninstall hook the same
   way): no process named like an exe of its install root or exe folder, so also one a launcher started under another
   name (the uninstall hook takes the install root from `GameRecord.RecorderInstallDir`, and checks again before it
-  deletes the recorder's data). No process is ever opened, here or anywhere SCSKiller asks what runs (apart from the one
-  SCSKiller starts for an offline session, below, whose exit its cleanup waits on): another program named like the game's exe only delays the write. One named like another exe of those folders counts only if its image is in them (also as they resolve through junctions and symlinks), read from the system's process list (a path or folder it can't tell counts as in them): a program that runs all the time elsewhere under such a name (Gaijin's `gjagent.exe`, also in War Thunder's root) isn't the game. Anti-cheat is a marker file
+  deletes the recorder's data). No process is ever opened, here or anywhere SCSFix asks what runs (apart from the one
+  SCSFix starts for an offline session, below, whose exit its cleanup waits on): another program named like the game's exe only delays the write. One named like another exe of those folders counts only if its image is in them (also as they resolve through junctions and symlinks), read from the system's process list (a path or folder it can't tell counts as in them): a program that runs all the time elsewhere under such a name (Gaijin's `gjagent.exe`, also in War Thunder's root) isn't the game. Anti-cheat is a marker file
   or folder by name anywhere in the install (`GameFiles.DetectAntiCheat`, the only detector), hidden or system ones
   included; junctions and symlinks count by name and aren't followed (one between the install root and the exe counts
   as anti-cheat); an install it can't list whole counts as anti-cheat. The install checks again after copying (the
@@ -565,16 +565,16 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   (store version, else the followed exe's size and write time). The recorder then moves next to it after the game exits,
   as above. Discovery itself never takes an exe in a patcher's or installer's copy (`PatchData`, `__Installer`,
   `Backup`, `Staging`), and of Unreal exes named alike takes the one nearest the install root.
-- **Uninstall** (Velopack's uninstall hook, `ScsKiller.RemoveAllRecorders`): removes the recorder the same way from
-  every folder a `GameRecord.RecorderExe` names, then the recorder's `scskiller.db` once merged into `recording.db`,
+- **Uninstall** (Velopack's uninstall hook, `ScsFix.RemoveAllRecorders`): removes the recorder the same way from
+  every folder a `GameRecord.RecorderExe` names, then the recorder's `scsfix.db` once merged into `recording.db`,
   and its csv, frame log, log and keys file. A running game's folder is left, and `recorders.log` says so: running is
   also a process named like any exe in the install's whole tree (its names read once per game, the anti-cheat scan's
   entry cap; a tree it can't read whole, or by the hook's deadline, counts as running), since the record's folders may
   be another exe's than the game's. The running processes are asked again before each folder's writes.
 - **Recording alongside a mod**: the recorder records under any layer that wraps the game's device: a foreign
   `d3d12.dll` it chains, or ReShade as `dxgi.dll`. A foreign `d3d12.dll` (ReShade or another wrapper) is chained only
-  when the user turns that on for the game: the mod is renamed to `d3d12.scskiller-next.dll` (bytes untouched, its
-  SHA-256 saved), and the recorder loads it via `next=` in `scskiller.ini`. Removal renames the mod back and never
+  when the user turns that on for the game: the mod is renamed to `d3d12.scsfix-next.dll` (bytes untouched, its
+  SHA-256 saved), and the recorder loads it via `next=` in `scsfix.ini`. Removal renames the mod back and never
   overwrites another file that took its place. Under a layer, the recorder hooks the device the layer returns and the
   real device under it, found through ReShade 6.8+'s `IID_UnwrappedObject`, else through `GetDevice` of a root
   signature (layers don't wrap root signatures). A layer may change a create before the driver sees it (RenoDX adds a
@@ -589,7 +589,7 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   uploaded (`HashOnly.Canonical`) nor put in a middleware pack. `Recordings.Layered` counts a recording's `'W'`
   records: the game's creates a layer changed and the layer's own. OptiScaler, Special K
   (they pick their role from their file name) and vkd3d-proton (it runs the game on Vulkan) are refused.
-- **Offline session** (`ScsKiller.StartOfflineSession`, app only): the one case where the recorder goes into an
+- **Offline session** (`ScsFix.StartOfflineSession`, app only): the one case where the recorder goes into an
   anti-cheat game. Offered (`GameState.OfflineEligible`) only for a game of `Games/offline-eac.json` (Steam ids, the exe
   each is discovered with, sources; embedded, never served): EasyAntiCheat games that run offline without it when their
   exe is started directly with `steam_appid.txt` beside it, so the game doesn't restart through Steam and
@@ -602,26 +602,26 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   Steam isn't running (the game would restart through it, with EasyAntiCheat; Steam's offline mode is fine). A leftover
   `d3d12.dll` would still be loaded, as a pass-through, into a normal EasyAntiCheat launch, so the session is a journal:
   under the recorder lock, before any file is written, `GameRecord.OfflineSession` keeps the folder's entry names and
-  every name the session may create there (`d3d12.dll`, `scskiller.ini`, `steam_appid.txt`, their temp names,
-  `scskiller.armed`, the recorder's data files and keys file; refused if any is already there), and the manifest names
+  every name the session may create there (`d3d12.dll`, `scsfix.ini`, `steam_appid.txt`, their temp names,
+  `scsfix.armed`, the recorder's data files and keys file; refused if any is already there), and the manifest names
   the first three by hash for the anti-cheat removals and the uninstall hook. Recovery is in place before any file is
   published: with `CleanupHelper` set (the app), an HKCU RunOnce entry (its name starts with "!", so Windows deletes it
-  only after its command ran) runs `SCSKiller.exe --offline-cleanup <id>` at the next logon, and that helper starts at
-  once, no window, outliving the app; while the journal has no pid yet it waits as long as the SCSKiller that started
+  only after its command ran) runs `SCSFix.exe --offline-cleanup <id>` at the next logon, and that helper starts at
+  once, no window, outliving the app; while the journal has no pid yet it waits as long as the SCSFix that started
   it runs. A helper that doesn't start refuses the session. Each file is written to a temp name and renamed into place.
-  The exe is started by SCSKiller itself with `CREATE_SUSPENDED`; its pid and creation time go into the journal and the
-  attestation (`pid=` and `pid_time=`, its creation FILETIME, in the ledger entry and `scskiller.armed`), then it is
+  The exe is started by SCSFix itself with `CREATE_SUSPENDED`; its pid and creation time go into the journal and the
+  attestation (`pid=` and `pid_time=`, its creation FILETIME, in the ledger entry and `scsfix.armed`), then it is
   resumed and the journal says so (`Resumed`); a failure in between ends it. A journaled process that is alive but was
-  never resumed is SCSKiller's own suspended child (the app ended while it set the session up): the cleanup ends it,
+  never resumed is SCSFix's own suspended child (the app ended while it set the session up): the cleanup ends it,
   its pid and creation time checked on the handle, and the helper does so after a minute. The proxy admits a bound
   attestation only in that process, and for it drops EasyAntiCheat's names from the markers beside the exe (any other
   marker still refuses, and an anti-cheat client loaded at the first device too). Any other launch with the files there, Steam's through
   EasyAntiCheat included, is a pass-through. While the process runs (this app's, or one whose journaled pid and creation
-  time match a live process, as when SCSKiller opens again while the game loads), no disarm, anti-cheat removal or
+  time match a live process, as when SCSFix opens again while the game loads), no disarm, anti-cheat removal or
   cleanup touches its attestation; the cleanup checks that again under the recorder lock. The cleanup
-  (`ScsKiller.CleanOfflineSession`, one at a time across processes) runs the moment that process exits, by its handle, in
+  (`ScsFix.CleanOfflineSession`, one at a time across processes) runs the moment that process exits, by its handle, in
   the app and in the helper (which opens the process only if its creation time is the journal's): the attestation is
-  revoked, the journaled names a launch loads (`d3d12.dll`, `scskiller.ini`, `steam_appid.txt`, the armed file, temp
+  revoked, the journaled names a launch loads (`d3d12.dll`, `scsfix.ini`, `steam_appid.txt`, the armed file, temp
   names) are deleted first, whatever the files hold (none existed before the session), and only then is the inbox merged
   into `recording.db` and the data files deleted, which waits while another process runs from the folder (by name, not
   the session's pid). A name leaves the journal, saved, as soon as the folder, listed whole after each delete pass,
@@ -631,10 +631,10 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   compared with the kept ones (a difference is logged; nothing that isn't the session's is deleted). The session and its
   RunOnce entry stay until the journal is empty; the helper tries again every few seconds for a day (and writes the entry
   again meanwhile), and the app first in every scan and every watcher pass. An update's apply stops every process under
-  the install root, the helper too, so the two exclude each other (`ScsKiller.BeginUpdate`): from the start of an apply
+  the install root, the helper too, so the two exclude each other (`ScsFix.BeginUpdate`): from the start of an apply
   (on quit, at start, "Restart to update" while it waits for the queue) no session starts, and the apply is skipped,
   and checked again right before the handover, while a session starts, its process runs or its helper does (it holds a
-  named mutex). A session whose files wait for a drive that's gone doesn't hold updates back. Accepted limit: SCSKiller
+  named mutex). A session whose files wait for a drive that's gone doesn't hold updates back. Accepted limit: SCSFix
   uninstalled during a session removes the recorder by the manifest, but the helper and the logon entry go with the
   app, so files a running game holds can stay until removed by hand; the game page's warning says not to. Its recording
   is shared like any other. Before the data files go, the session's report (its csv, log and frame log) moves to the
@@ -659,9 +659,9 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   (`ReShadeInstall.Copyable`: ReShade in the exe's own folder under a name the game loads by itself, dxgi.dll, d3d12.dll,
   d3d11.dll, d3d10.dll, d3d9.dll, opengl32.dll, dinput8.dll or the recorder's chain name, and no Luma add-on, whose
   shader files a copy leaves out) compiles through a copy of its layer: as each warm process starts,
-  `ScsKiller.LayerFor` copies ReShade's DLL (as dxgi.dll, whatever its name in the game),
+  `ScsFix.LayerFor` copies ReShade's DLL (as dxgi.dll, whatever its name in the game),
   the enabled add-ons that change pipelines and ReShade.ini without `[ADDON] AddonPath` and `[INSTALL] BasePath` into
-  `work\layer\`, and `scskiller_warm --layer` stages them next to the warm's exe. ReShade starts there without a
+  `work\layer\`, and `scsfix_warm --layer` stages them next to the warm's exe. ReShade starts there without a
   swap chain (add-ons load with the device) and its add-ons change the plan's and the recording's pipelines as in the
   game; what the layer made itself ('W') is created under it as recorded (see Recorder, "Recording alongside a
   mod"). Pipelines an add-on creates only while the game draws (RenoDX's bind-time clones) come from a recording
@@ -676,14 +676,14 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   shared, checked again right before each warm starts, and the recorder taken out at once (`TakeOutNow`) and kept out;
   a ReplacesShaders one only adds a note, and the game compiles without the layer. Each file is read once per
   size and write time, up to 128 MB; anti-cheat installs aren't read.
-- **Import** (`Recordings`): the game folder's `scskiller.db` is an inbox. When it changed since the last import
+- **Import** (`Recordings`): the game folder's `scsfix.db` is an inbox. When it changed since the last import
   (`GameRecord.RecordingInbox`, its size and write time), its records are merged into `recording.db` by record key,
   after the ones already there. Once `recording.db` is written, the inbox is emptied, but only while nothing has it
   open (the recorder holds it for the whole session) and only at the length that was read; once emptied, whatever it
   gets next is imported. `recording.db` is written to a temp file (its own name per writer) that is read back and
   compared before it replaces the old one, all under the recording lock; a temp file found under it whose write is an
   hour old or older than the PC's start is a killed writer's, and goes.
-- **Keys file**: next to `scskiller.ini` the app writes `scskiller.keys` ("SCSKKEY1", then 20-byte hashes): the shaders
+- **Keys file**: next to `scsfix.ini` the app writes `scsfix.keys` ("SCSKKEY1", then 20-byte hashes): the shaders
   of the last index (`index.shaders`), the blobs `recording.db` holds and the key of every record that replays from the
   two. The recorder loads it in record mode and treats those as already recorded, so the emptied inbox only gets what's
   new, and a new pipeline's shipped shaders go in by hash, without their bytes: the install gives them back. A shader
@@ -695,11 +695,11 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   are named only while the install is the build last indexed (`IndexIsInstalled`: the store's build id, or without one
   the exe's size and write time, the signals that mark a warm stale after a game update). A scan that finds another
   build rewrites the file without them (`GameRecord.KeysIndexHash` notes whose it names), and new pipelines are
-  recorded with every shader's bytes until the next compile's index. A game updated and played before SCSKiller looks
+  recorded with every shader's bytes until the next compile's index. A game updated and played before SCSFix looks
   at it again records with the previous build's file: a record naming a shader the new build doesn't ship then has no
   bytes, the compile skips that record alone, and its index takes it out of the file so it is recorded again. A
   Battle.net or Ubisoft game, which has no build id, patched without its exe changing looks unchanged. Measured on
-  three recordings taken as a first session, `scskiller.db` is 2-13% of its size with every shader's bytes, nearly all
+  three recordings taken as a first session, `scsfix.db` is 2-13% of its size with every shader's bytes, nearly all
   of it the records themselves; an index of 286,000 shaders makes a 5.7 MB file, which the recorder keeps as a sorted
   array (40 ms to load).
 - **Stored form** (`PsoDb.WriteCompact`): `recording.db` is `\0SCSKREC`, a version byte, the length of the proxy db it
@@ -716,18 +716,18 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   so they see the same bytes as when the recording kept them. The readiness check reads records only, from
   `recording.db` or `community.db`, without merging them.
 - **Migration**: a `recording.db` stored as a plain proxy db, or a `recording.all.db` beside it, is converted once in
-  the background after a scan (`ScsKiller.MigrateRecordings`), never while the game or a compile runs: the inbox is
+  the background after a scan (`ScsFix.MigrateRecordings`), never while the game or a compile runs: the inbox is
   imported, `recording.all.db` is deleted, and the old file stays until the new one reads back the same.
-- **Recording limit** (`Settings.RecordingLimitMB`, one of `ScsKiller.RecordingLimits`, default 256 MB, 0 = unlimited;
+- **Recording limit** (`Settings.RecordingLimitMB`, one of `ScsFix.RecordingLimits`, default 256 MB, 0 = unlimited;
   a stored value that isn't a choice becomes the next choice up, or unlimited): covers the game folder's
-  `scskiller.db` and `recording.db`. The app writes what `recording.db` leaves as
-  `max_db_bytes` into its own `scskiller.ini` (`ScsKiller.DbCap`); the recorder stops appending once the db reaches it,
+  `scsfix.db` and `recording.db`. The app writes what `recording.db` leaves as
+  `max_db_bytes` into its own `scsfix.ini` (`ScsFix.DbCap`); the recorder stops appending once the db reaches it,
   a record going in whole or not at all, and still writes the csv and log. The game then shows "Recording paused: limit
   reached" (`GameState.RecordingPaused`) until an import empties the db.
-- **Clear recording** (`IScsKiller.ClearRecording`, CLI `record clear <game>`): deletes the recording's files, all or
+- **Clear recording** (`IScsFix.ClearRecording`, CLI `record clear <game>`): deletes the recording's files, all or
   none, never while the game runs or compiles; the recorder and its ini stay, and the keys file is rewritten. The next compile
   plans from the game's files.
-- **Frame times** (`scskiller_frames.bin`, read by `FrameLog`): at the first device the recorder takes a factory from
+- **Frame times** (`scsfix_frames.bin`, read by `FrameLog`): at the first device the recorder takes a factory from
   the process's `dxgi.dll` and hooks its `CreateSwapChain*` slots, then `Present` / `Present1` of every swap chain it
   creates, keeping the original per vtable (a wrapper's swap chain and the real one differ). A frame is the QPC at which
   the outermost present of a thread returns, as PresentMon's `FrameTime` counts (measured equal to PresentMon frame for
@@ -737,7 +737,7 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   the low 28 bits the microseconds since the previous record; top 4 bits 15 = no frame for the low 28 bits'
   milliseconds. The file holds the last launch that presented, replaced at its first frame (3 hours at 300 FPS is
   13 MB; a launch stops writing at 32 MB). It isn't part of the recording: not in the recording limit or the recording's
-  size, never shared; Clear recording and removing the recorder delete it with the csv. `frames=0` in `scskiller.ini` turns it off (diagnostics
+  size, never shared; Clear recording and removing the recorder delete it with the csv. `frames=0` in `scsfix.ini` turns it off (diagnostics
   only). The game page's last session (`GameState.LastFrames`) reads the last launch with the creates csv of the
   same launch (the `#session` with the same stamp; from an older recorder, without `#clock`, the only one within 10 s, else none). A frame
   is **cold-filled** when its overlapping compiles of 100 ms or more (not a library load or a RayQuery PSO at the
@@ -767,21 +767,21 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
 - The recorder loads NVAPI only on NVIDIA and only in a run it admitted (no anti-cheat running), to record the
   shader-extension state pipelines are created with.
 
-## scskiller_warm.exe protocol
+## scsfix_warm.exe protocol
 
 ```
-scskiller_warm.exe <workdir> <game exe file name> [--threads N] [--priority below|idle] [--start N]
+scsfix_warm.exe <workdir> <game exe file name> [--threads N] [--priority below|idle] [--start N]
                    [--stop-event <name>] [--adapter-luid <hex>] [--rt-threads N] [--skip i,j,...] [--memory-mb N]
                    [--package <app user model id>] [--stage-path <install folder>\<exe dir in the install>\<exe>]
                    [--skip-keys <sha1 hex>,...] [--isolate i,j,...] [--pass K]
                    [--ags <amd_ags_x64.dll> --ags-app <name> --ags-engine <name>]
 ```
 
-- `workdir` holds `scskiller.db` (the recording, may be missing) and `scskiller_gen.db` (the plan's templates and
+- `workdir` holds `scsfix.db` (the recording, may be missing) and `scsfix_gen.db` (the plan's templates and
   items). Staging goes to a new folder of the run's own, `<workdir>\stage-<pid>-<n>\` (never one that exists): a copy of
-  `scskiller_warm.exe` named `<game exe>`, the proxy `d3d12.dll`, and the two databases. The staged copy runs as a child
+  `scsfix_warm.exe` named `<game exe>`, the proxy `d3d12.dll`, and the two databases. The staged copy runs as a child
   process and prints the output. When it exits the staged inputs are deleted, and the folder keeps the proxy's outputs:
-  `scskiller.log`, `scskiller_creates.csv`. The first line, the `stage` event, names the folder. Nothing else in `workdir`
+  `scsfix.log`, `scsfix_creates.csv`. The first line, the `stage` event, names the folder. Nothing else in `workdir`
   is written or deleted; the app deletes its whole work folder after a compile.
 - `--stage-path`: a relative path ending in `<game exe>`, without `.` or `..` parts, for AMD's path-matched profiles.
   The child is staged and launched under `<staging folder>\<its folders>\`, and its outputs move up to the staging
@@ -789,9 +789,9 @@ scskiller_warm.exe <workdir> <game exe file name> [--threads N] [--priority belo
 - `--ags <dll> --ags-app <name> --ags-engine <name>` (AMD): the child creates its device through that AGS 6 DLL with
   those names, as Unreal does (see [AMD, D3D12](#amd-d3d12)). The DLL's imports are resolved from System32 only. If AGS
   fails, a stderr line says why and the child creates a plain device. The app passes it only where the registration is
-  proven (`ScsKiller.AgsFor`), with the game's own `amd_ags_x64.dll` when it is AGS 6, else the one in `native\` (AMD's
+  proven (`ScsFix.AgsFor`), with the game's own `amd_ags_x64.dll` when it is AGS 6, else the one in `native\` (AMD's
   signed release, pinned by hash).
-- `--pass K` (AMD careful compile): `<workdir>\scskiller_pass.bin` holds one byte per item, its pass (1-32, or 255 for
+- `--pass K` (AMD careful compile): `<workdir>\scsfix_pass.bin` holds one byte per item, its pass (1-32, or 255 for
   the rest). The process creates only pass K's items and counts the others done, so `done`, `total` and `--start` keep
   their meaning.
 - stdout carries one JSON object per line and nothing else (usage and other text go to stderr):
@@ -807,10 +807,10 @@ scskiller_warm.exe <workdir> <game exe file name> [--threads N] [--priority belo
   printed with `"stopped":true`, exit code 0. Never kill the process to stop it: the driver may not write its cache. A run
   stopped after its driver was poisoned or its device removed prints the first item it left unfinished as `done`.
 - Pause: the caller suspends the process. The child sees the heartbeat stop within about a second and its workers wait.
-  If `scskiller_warm.exe` dies, the child stops gracefully.
+  If `scsfix_warm.exe` dies, the child stops gracefully.
 - `--threads N`: default logical CPUs - 2. `--priority below` (default): below-normal worker threads; `idle`: idle
   priority class and threads.
-- Heap: on NVIDIA the warmer runs `native\segheap\scskiller_warm.exe`, the same code whose manifest selects the segment
+- Heap: on NVIDIA the warmer runs `native\segheap\scsfix_warm.exe`, the same code whose manifest selects the segment
   heap (`Warmer.ExeFor`); it stages the proxy from `native\`. On the NT heap NVIDIA's compiler threads wait on the
   process heap's lock: a 60,000-pipeline warm on 32 threads took 742 s at 27% CPU, 227 s at 87% on the segment heap.
   AMD's compiler doesn't wait there, and on the segment heap an 84,000-pipeline AMD warm took about 25% longer (147 s
@@ -819,8 +819,8 @@ scskiller_warm.exe <workdir> <game exe file name> [--threads N] [--priority belo
 - `--package`: run the staged copy with that app's package identity (see [NVIDIA, D3D12](#nvidia-d3d12)). The child
   then gets none of the caller's environment.
 - Exit codes: 0 completed or stopped; 1 failure, after an `error` line; 3 after a `retry` line.
-- D3D12 failures are counted by record kind and cause at the end of the log. `SCSKILLER_D3D12_DEBUG=1` turns on the
-  D3D12 debug layer, `SCSKILLER_D3D11_DEBUG=1` the D3D11 one.
+- D3D12 failures are counted by record kind and cause at the end of the log. `SCSFIX_D3D12_DEBUG=1` turns on the
+  D3D12 debug layer, `SCSFIX_D3D11_DEBUG=1` the D3D11 one.
 
 ### Memory budget
 
@@ -831,14 +831,14 @@ workers drops by one every 5 s and rises again after 30 s under 80% of the budge
 take about 1.3 GB, the floor of what a budget can hold; the driver's cache write at exit comes on top.
 
 The app passes `Settings.MaxCompileMemoryGB`, whose Auto value scales with physical memory: 2 GB up to 20 GB of RAM,
-4 up to 28, 6 up to 40, 8 up to 56, else 16 (`ScsKiller.AutoCompileMemoryGB`).
+4 up to 28, 6 up to 40, 8 up to 56, else 16 (`ScsFix.AutoCompileMemoryGB`).
 
 ### Faults and retries
 
 A driver fault or hang in a ray tracing state object never stops the warm or skips items silently:
 
 - State objects are never released on worker threads during the run: they are parked and released in batches on one
-  thread while no create runs (`SCSKILLER_WARM_RT_PARK_MB`, default 2048). This avoids a driver race on concurrent
+  thread while no create runs (`SCSFIX_WARM_RT_PARK_MB`, default 2048). This avoids a driver race on concurrent
   releases.
 - Every driver call on a state object is SEH-guarded. After the first fault or hang, the process's driver isn't trusted
   for ray tracing: later state objects are left unfinished, PSOs go on, and the run ends with a `retry` line. The warmer
@@ -855,12 +855,12 @@ A driver fault or hang in a ray tracing state object never stops the warm or ski
   `Warmer.MaxRecoveries` (20) times per compile. The app keeps the keys per game and driver (`GameRecord.CrashKeys`),
   skips them in every later compile on that driver, and reports them apart ("N skipped (they crash the GPU driver)").
   A compile on another driver gives each one retry.
-- After its last line the child signals `Local\SCSKiller.Final.<scskiller_warm's pid>` (created before the child
-  starts); if it hasn't exited `SCSKILLER_WARM_EXIT_S` (default 600) seconds later, it's terminated and the run returns 3.
+- After its last line the child signals `Local\SCSFix.Final.<scsfix_warm's pid>` (created before the child
+  starts); if it hasn't exited `SCSFIX_WARM_EXIT_S` (default 600) seconds later, it's terminated and the run returns 3.
 
 ### D3D11 items
 
-D3D11 items live in `scskiller_gen.db` only and are replayed after all D3D12 items, with the same counting, stop and
+D3D11 items live in `scsfix_gen.db` only and are replayed after all D3D12 items, with the same counting, stop and
 resume rules.
 
 - `'1'` (24 bytes): `u32 stage` (1 VS, 2 PS, 3 DS, 4 HS, 5 GS, 6 CS) + the SHA-1 of a `'B'` blob holding a DXBC
@@ -913,10 +913,10 @@ checked against `d3d12.h` at compile time (`proxy/vtslots.cpp`). Records are rep
 A pipeline with a stream-output declaration (`NumEntries` > 0) stores it in its record: a `'G'` desc appends it after
 `Flags`, a stream writes it as subobject `0x10007` (`PsoDb.SoDecl`): u32 n, n × (u32 stream, u32 semantic length
 (0xFFFFFFFF = a gap) + ASCII, u32 index, start component, component count, output slot), u32 stride count + strides,
-u32 rasterized stream. Without entries the record is unchanged. `SCSKILLER_WARM_ROUNDTRIP=1` makes the warm
+u32 rasterized stream. Without entries the record is unchanged. `SCSFIX_WARM_ROUNDTRIP=1` makes the warm
 re-serialize every decoded record and compare it with the original.
 
-## scskiller_creates.csv
+## scsfix_creates.csv
 
 Written by the recorder next to the game's exe. Rows are `t_ms,kind,known,tuple_known,ms,key,proxy_ms,tid,presents`:
 

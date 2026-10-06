@@ -5,7 +5,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: SCSKiller version
+      label: SCSFix version
       description: The app's About page shows it.
     validations:
       required: true
@@ -47,12 +47,12 @@ body:
     attributes:
       label: Steps to reproduce
       placeholder: |
-        1. Open SCSKiller
+        1. Open SCSFix
         2. Press Compile on ...
         3. ...
   - type: textarea
     id: logs
     attributes:
       label: Output or error text
-      description: The error shown, or the output of `scskiller status "<game>"`. Remove anything personal (user names in paths).
+      description: The error shown, or the output of `scsfix status "<game>"`. Remove anything personal (user names in paths).
       render: text

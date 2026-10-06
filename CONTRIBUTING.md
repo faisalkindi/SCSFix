@@ -5,9 +5,9 @@ never a public issue.
 
 ## Anti-cheat games
 
-SCSKiller never touches a game with anti-cheat beyond reading its files: no recorder, no injection, no opening its
+SCSFix never touches a game with anti-cheat beyond reading its files: no recorder, no injection, no opening its
 processes. The one exception is the offline session (ARCHITECTURE.md, Recorder): EasyAntiCheat games on the list in
-`src/SCSKiller.Core/Games/offline-eac.json` only, opted into per game, confirmed per launch, started by SCSKiller itself
+`src/SCSFix.Core/Games/offline-eac.json` only, opted into per game, confirmed per launch, started by SCSFix itself
 and recorded in that process alone. Changes that widen it or work around the rule otherwise aren't accepted.
 
 ## How pull requests are merged
@@ -37,7 +37,7 @@ Visual Studio 2022 with the C++ desktop workload (MSVC x64, CMake), and the .NET
 ```
 cmake -S proxy -B proxy/build -A x64
 cmake --build proxy/build --config Release
-dotnet build SCSKiller.slnx -c Release
+dotnet build SCSFix.slnx -c Release
 ```
 
 The CMake configure downloads AMD's `amd_ags_x64.dll` (pinned by SHA-256). Offline, the build goes on without it and
@@ -46,7 +46,7 @@ warms of AGS games on AMD fall back to a plain device.
 ## Tests
 
 ```
-dotnet test tests/SCSKiller.Tests -c Release --filter "Needs!=Gpu&Needs!=Game"
+dotnet test tests/SCSFix.Tests -c Release --filter "Needs!=Gpu&Needs!=Game"
 ```
 
 This is what CI runs, on a clean Windows machine with no games and no GPU, and it must pass. Tests that need more carry
@@ -57,9 +57,9 @@ a trait:
 
 Give a new test the right trait, and return early when the game or GPU it needs isn't there. Never write a machine
 path into a test: `TestEnv` finds games through Steam's library list, the `XboxGames` folders and GOG, plus
-`SCSKILLER_TEST_GAMES_ROOT` (`;`-separated folders holding game install folders). GPU tests take a lock in
-`SCSKILLER_DEV_DIR` (default `%TEMP%\scskiller-test`). When your change touches that area, run the GPU and game tests
-locally too (`dotnet test tests/SCSKiller.Tests -c Release`). Tests must never write into a game folder, change the
+`SCSFIX_TEST_GAMES_ROOT` (`;`-separated folders holding game install folders). GPU tests take a lock in
+`SCSFIX_DEV_DIR` (default `%TEMP%\scsfix-test`). When your change touches that area, run the GPU and game tests
+locally too (`dotnet test tests/SCSFix.Tests -c Release`). Tests must never write into a game folder, change the
 driver's cache size or settings, or register scheduled tasks.
 
 ## Style

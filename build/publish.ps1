@@ -1,16 +1,16 @@
 ﻿<#
 .SYNOPSIS
-Builds dist\SCSKiller\ and dist\SCSKiller.zip:
+Builds dist\SCSFix\ and dist\SCSFix.zip:
 
-  SCSKiller.exe            WinUI app, self-contained (.NET + Windows App SDK), + oodle-data-shared.dll, zlib-ng2.dll
-  cli\scskiller.exe        command line, self-contained, same Core project and commit, + the two codec DLLs
-  cli\scskillerw.exe       the same CLI flagged as a GUI-subsystem exe: what the scheduled task runs (no console window)
-  native\                  scskiller_warm.exe + the proxy d3d12.dll (the app looks in native\, the CLI in ..\native\)
+  SCSFix.exe            WinUI app, self-contained (.NET + Windows App SDK), + oodle-data-shared.dll, zlib-ng2.dll
+  cli\scsfix.exe        command line, self-contained, same Core project and commit, + the two codec DLLs
+  cli\scsfixw.exe       the same CLI flagged as a GUI-subsystem exe: what the scheduled task runs (no console window)
+  native\                  scsfix_warm.exe + the proxy d3d12.dll (the app looks in native\, the CLI in ..\native\)
                            + amd_ags_x64.dll (AMD AGS, downloaded by the proxy's CMake configure)
-                           + segheap\scskiller_warm.exe (the same on the segment heap: NVIDIA's warm)
+                           + segheap\scsfix_warm.exe (the same on the segment heap: NVIDIA's warm)
   THIRD-PARTY-NOTICES.md   every third-party component and its licence; notices\ holds the Microsoft packages' own notices
 
-The CLI can't sit next to the app: scskiller.exe and SCSKiller.exe are the same file name on NTFS.
+The CLI can't sit next to the app: scsfix.exe and SCSFix.exe are the same file name on NTFS.
 
 -NoOodle leaves oodle-data-shared.dll out (CI and anything published: Oodle is proprietary, redistribution not
 established, THIRD-PARTY-NOTICES.md); UnrealReader and the FromSoft reader download it through CUE4Parse on first use.
@@ -35,7 +35,7 @@ Write-Host "version: $(if ($Version) { $Version } else { '0.0.0-internal.0 (dev)
 $dotnet = Join-Path $env:LOCALAPPDATA "Microsoft\dotnet\dotnet.exe"   # .NET 10 SDK is per user; PATH may have an older one
 if (-not (Test-Path $dotnet)) { $dotnet = "dotnet" }
 $dist = Join-Path $repo "dist"
-$out = Join-Path $dist "SCSKiller"
+$out = Join-Path $dist "SCSFix"
 $cli = Join-Path $out "cli"
 $native = Join-Path $out "native"
 
@@ -52,23 +52,23 @@ $scskVersion = if ($Version) { $Version } else { "0.0.0-internal.0" }   # every 
 Run cmake @("-S", (Join-Path $repo "proxy"), "-B", $build, "-A", "x64", "-DSCSK_VERSION=$scskVersion")
 Run cmake @("--build", $build, "--config", "Release")
 New-Item -ItemType Directory -Force $native | Out-Null
-Copy-Item (Join-Path $build "Release\scskiller_warm.exe"), (Join-Path $build "Release\d3d12.dll"), (Join-Path $build "Release\amd_ags_x64.dll") $native
+Copy-Item (Join-Path $build "Release\scsfix_warm.exe"), (Join-Path $build "Release\d3d12.dll"), (Join-Path $build "Release\amd_ags_x64.dll") $native
 New-Item -ItemType Directory -Force (Join-Path $native "segheap") | Out-Null
-Copy-Item (Join-Path $build "Release\segheap\scskiller_warm.exe") (Join-Path $native "segheap")
+Copy-Item (Join-Path $build "Release\segheap\scsfix_warm.exe") (Join-Path $native "segheap")
 
 # 2. app + CLI
-Run $dotnet (@("publish", (Join-Path $repo "src\SCSKiller.App\SCSKiller.App.csproj"), "-c", $Configuration, "-r", "win-x64",
+Run $dotnet (@("publish", (Join-Path $repo "src\SCSFix.App\SCSFix.App.csproj"), "-c", $Configuration, "-r", "win-x64",
     "--self-contained", "true", "-p:Platform=x64", "-p:EnableMsixTooling=true", "-o", $out) + $versionArgs)   # MSIX tooling: else the app's .pri/.xbf aren't published and XAML crashes at start
-Run $dotnet (@("publish", (Join-Path $repo "src\SCSKiller.Cli\SCSKiller.Cli.csproj"), "-c", $Configuration, "-r", "win-x64",
+Run $dotnet (@("publish", (Join-Path $repo "src\SCSFix.Cli\SCSFix.Cli.csproj"), "-c", $Configuration, "-r", "win-x64",
     "--self-contained", "true", "-o", $cli) + $versionArgs)
 
-# 3. scskillerw.exe: optional header Subsystem (e_lfanew + 24 + 68) 3 = console -> 2 = GUI, as the SDK does for WinExe.
-#    The apphost still runs scskiller.dll from the same folder.
-$bytes = [IO.File]::ReadAllBytes((Join-Path $cli "scskiller.exe"))
+# 3. scsfixw.exe: optional header Subsystem (e_lfanew + 24 + 68) 3 = console -> 2 = GUI, as the SDK does for WinExe.
+#    The apphost still runs scsfix.dll from the same folder.
+$bytes = [IO.File]::ReadAllBytes((Join-Path $cli "scsfix.exe"))
 $subsystem = [BitConverter]::ToInt32($bytes, 0x3C) + 24 + 68
-if ($bytes[$subsystem] -ne 3) { throw "scskiller.exe: unexpected PE subsystem $($bytes[$subsystem])" }
+if ($bytes[$subsystem] -ne 3) { throw "scsfix.exe: unexpected PE subsystem $($bytes[$subsystem])" }
 $bytes[$subsystem] = 2
-[IO.File]::WriteAllBytes((Join-Path $cli "scskillerw.exe"), $bytes)
+[IO.File]::WriteAllBytes((Join-Path $cli "scsfixw.exe"), $bytes)
 
 # 4. codecs next to both executables (UnrealReader loads them from AppContext.BaseDirectory): local copies first
 #    (this checkout, then the main checkout when run from a git worktree), else CUE4Parse downloads them.
@@ -81,7 +81,7 @@ foreach ($c in $codecs) {
     $found = $dirs | ForEach-Object { Join-Path $_ $c } | Where-Object { Test-Path $_ } | Select-Object -First 1
     if ($found) { Copy-Item $found $cli; Write-Host "$c <- $found" }
 }
-if ($codecs | Where-Object { -not (Test-Path (Join-Path $cli $_)) }) { Run (Join-Path $cli "scskiller.exe") @("fetch-codecs") }
+if ($codecs | Where-Object { -not (Test-Path (Join-Path $cli $_)) }) { Run (Join-Path $cli "scsfix.exe") @("fetch-codecs") }
 if ($NoOodle) { Remove-Item (Join-Path $cli "oodle-data-shared.dll") -ErrorAction SilentlyContinue }   # fetch-codecs fetches both
 foreach ($c in $codecs) { Copy-Item (Join-Path $cli $c) $out }
 
@@ -91,9 +91,9 @@ foreach ($l in "LICENSE", "LICENSE-EXCEPTION.txt") { Copy-Item (Join-Path $repo 
 $nuget = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE ".nuget\packages" }
 New-Item -ItemType Directory -Force (Join-Path $out "notices") | Out-Null
 # versions come from what was actually published (any SDK/runtime of this major or newer builds it)
-$runtime = ((Get-Content (Join-Path $out "SCSKiller.runtimeconfig.json") -Raw | ConvertFrom-Json).runtimeOptions.includedFrameworks |
+$runtime = ((Get-Content (Join-Path $out "SCSFix.runtimeconfig.json") -Raw | ConvertFrom-Json).runtimeOptions.includedFrameworks |
     Where-Object name -eq "Microsoft.NETCore.App").version
-$libs = (Get-Content (Join-Path $repo "src\SCSKiller.App\obj\project.assets.json") -Raw | ConvertFrom-Json).libraries.PSObject.Properties.Name   # the restore that built it
+$libs = (Get-Content (Join-Path $repo "src\SCSFix.App\obj\project.assets.json") -Raw | ConvertFrom-Json).libraries.PSObject.Properties.Name   # the restore that built it
 function PackageVersion($id) {
     $v = $libs | Where-Object { $_ -like "$id/*" } | Select-Object -First 1
     if (-not $v) { throw "$id is not among the app's restored packages" }
@@ -110,25 +110,25 @@ foreach ($n in @(
 
 # 5. layout check, including self-contained .NET (no "install .NET" prompt): the runtime next to each exe and
 #    runtimeconfig.json listing includedFrameworks rather than a shared framework
-$expected = "SCSKiller.exe", "oodle-data-shared.dll", "zlib-ng2.dll", "cli\scskiller.exe", "cli\scskillerw.exe",
-    "cli\oodle-data-shared.dll", "cli\zlib-ng2.dll", "native\scskiller_warm.exe", "native\segheap\scskiller_warm.exe", "native\d3d12.dll", "native\amd_ags_x64.dll",
-    "hostfxr.dll", "coreclr.dll", "cli\hostfxr.dll", "cli\coreclr.dll", "Microsoft.WindowsAppRuntime.dll", "SCSKiller.pri",
+$expected = "SCSFix.exe", "oodle-data-shared.dll", "zlib-ng2.dll", "cli\scsfix.exe", "cli\scsfixw.exe",
+    "cli\oodle-data-shared.dll", "cli\zlib-ng2.dll", "native\scsfix_warm.exe", "native\segheap\scsfix_warm.exe", "native\d3d12.dll", "native\amd_ags_x64.dll",
+    "hostfxr.dll", "coreclr.dll", "cli\hostfxr.dll", "cli\coreclr.dll", "Microsoft.WindowsAppRuntime.dll", "SCSFix.pri",
     "THIRD-PARTY-NOTICES.md", "LICENSE", "LICENSE-EXCEPTION.txt", "notices\dotnet-THIRD-PARTY-NOTICES.txt"
 if ($NoOodle) { $expected = $expected | Where-Object { $_ -notlike "*oodle-data-shared.dll" } }
 $missing = $expected | Where-Object { -not (Test-Path (Join-Path $out $_)) }
-if ($missing) { throw "dist\SCSKiller is missing: $($missing -join ', ')" }
-if ($NoOodle -and (Get-ChildItem $out -Recurse -Filter "oodle-data-shared.dll")) { throw "-NoOodle, but oodle-data-shared.dll is in dist\SCSKiller" }
-foreach ($rc in "SCSKiller.runtimeconfig.json", "cli\scskiller.runtimeconfig.json") {
+if ($missing) { throw "dist\SCSFix is missing: $($missing -join ', ')" }
+if ($NoOodle -and (Get-ChildItem $out -Recurse -Filter "oodle-data-shared.dll")) { throw "-NoOodle, but oodle-data-shared.dll is in dist\SCSFix" }
+foreach ($rc in "SCSFix.runtimeconfig.json", "cli\scsfix.runtimeconfig.json") {
     if ((Get-Content (Join-Path $out $rc) -Raw) -notmatch '"includedFrameworks"') { throw "$rc is framework-dependent" }
 }
 
-# 6. zip (with the SCSKiller\ folder at its root)
+# 6. zip (with the SCSFix\ folder at its root)
 if (-not $NoZip) {
-    $zip = Join-Path $dist "SCSKiller.zip"
+    $zip = Join-Path $dist "SCSFix.zip"
     if (Test-Path $zip) { Remove-Item $zip }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [IO.Compression.ZipFile]::CreateFromDirectory($out, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
 }
-$msg = "dist\SCSKiller: {0:N0} MB" -f ((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
-if (-not $NoZip) { $msg += ", dist\SCSKiller.zip: {0:N0} MB" -f ((Get-Item $zip).Length / 1MB) }
+$msg = "dist\SCSFix: {0:N0} MB" -f ((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+if (-not $NoZip) { $msg += ", dist\SCSFix.zip: {0:N0} MB" -f ((Get-Item $zip).Length / 1MB) }
 Write-Host $msg

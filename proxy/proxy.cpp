@@ -1,16 +1,16 @@
-// scskiller: d3d12.dll proxy. Records every PSO the game creates into scskiller.db and,
+// scsfix: d3d12.dll proxy. Records every PSO the game creates into scsfix.db and,
 // in warm mode, replays the whole db into the driver shader cache so play never compiles.
 //
 // Install: copy d3d12.dll next to the game's *-Win64-Shipping.exe.
-// Config:  scskiller.ini [scskiller] mode=record|warm threads=N next=<a mod's d3d12.dll, renamed>  (next to the dll), or env
-//          SCSKILLER_MODE / SCSKILLER_THREADS (Steam launch options: SCSKILLER_MODE=warm %command%).
-//          max_db_bytes=N (ini only; missing = no limit): once scskiller.db has N bytes, no record is appended.
+// Config:  scsfix.ini [scsfix] mode=record|warm threads=N next=<a mod's d3d12.dll, renamed>  (next to the dll), or env
+//          SCSFIX_MODE / SCSFIX_THREADS (Steam launch options: SCSFIX_MODE=warm %command%).
+//          max_db_bytes=N (ini only; missing = no limit): once scsfix.db has N bytes, no record is appended.
 //          frames=0 (ini only): no frame times.
-// Output:  scskiller.db (append-only), scskiller.log, scskiller_creates.csv (t_ms,kind,known,tuple_known,ms,key,proxy_ms,tid,presents),
-//          scskiller_frames.bin (frame_hooks).
-// Input:   scskiller.keys (optional, record mode): what the app already imported, never recorded again, and the shaders
+// Output:  scsfix.db (append-only), scsfix.log, scsfix_creates.csv (t_ms,kind,known,tuple_known,ms,key,proxy_ms,tid,presents),
+//          scsfix_frames.bin (frame_hooks).
+// Input:   scsfix.keys (optional, record mode): what the app already imported, never recorded again, and the shaders
 //          the game ships, recorded by hash only (load_keys).
-// Input:   scskiller_gen.db (optional): generated plan from gen/, replayed by warm on top of the db.
+// Input:   scsfix_gen.db (optional): generated plan from gen/, replayed by warm on top of the db.
 //
 // db record: u8 tag, u32 len, payload.  'B' blob = sha1[20] + bytes (shader container or root sig).
 // 'G' CreateGraphicsPipelineState, 'C' CreateComputePipelineState, 'S' CreatePipelineState stream.
@@ -87,7 +87,7 @@ static size_t shader_len(const D3D12_SHADER_BYTECODE& b) {
 }
 
 static HMODULE g_real;
-static bool g_next;  // scskiller.ini next= loaded a mod's d3d12.dll: the device comes from it
+static bool g_next;  // scsfix.ini next= loaded a mod's d3d12.dll: the device comes from it
 static std::wstring g_dir;
 static bool g_warm;
 static int g_threads;
@@ -103,26 +103,26 @@ struct Rec { char tag; std::string payload; };
 static std::vector<Rec> g_recs;                              // every recorded PSO payload (templates for plans)
 static std::unordered_map<Hash, std::string_view, HashH> g_blob_bytes; // warm mode only: views into the mapped dbs (map_blobs)
 static std::unordered_map<Hash, size_t, HashH> g_rec_idx;       // PSO key -> g_recs index
-static std::vector<std::string> g_plan;                          // warm mode only: 'P' payloads from scskiller_gen.db
+static std::vector<std::string> g_plan;                          // warm mode only: 'P' payloads from scsfix_gen.db
 static std::vector<std::string> g_items11;                       // warm mode only: '1' and '2' payloads (D3D11 items; 24 / 40 bytes)
 static HashSet g_known_tuples;                                   // (stages + root sig) tuples known at launch
 static uint64_t g_lib_loads, g_db_records_at_start, g_creates, g_known_hits, g_tuple_hits, g_slow_known, g_slow_tuple, g_slow_unknown, g_unsupported;
 static std::atomic<uint64_t> g_warm_ok, g_warm_fail, g_warm_crash;  // crash: skipped, it removed the device in an earlier run
 static std::atomic<uint64_t> g_warm_other;                       // items of another pass: counted done, never created
 static uint64_t warm_done() { return g_warm_ok + g_warm_fail + g_warm_crash + g_warm_other; }
-static uint64_t g_total, g_start;                                // warm items; first item to replay (scskiller_warm --start)
-static std::vector<uint8_t> g_pass_of;                           // scskiller_warm --pass: each item's pass (empty = no passes)
+static uint64_t g_total, g_start;                                // warm items; first item to replay (scsfix_warm --start)
+static std::vector<uint8_t> g_pass_of;                           // scsfix_warm --pass: each item's pass (empty = no passes)
 static uint8_t g_pass;
 static bool other_pass(size_t j) { return j < g_pass_of.size() && g_pass_of[j] != g_pass; }
 static int g_prio = THREAD_PRIORITY_BELOW_NORMAL;
 enum { RUN, PAUSE, STOP };
-static std::atomic<int> g_state;                                 // set by scskiller_warm; in-game always RUN
+static std::atomic<int> g_state;                                 // set by scsfix_warm; in-game always RUN
 static HANDLE g_warm_done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-static bool g_staged;         // SCSKiller_WarmOptions was called: this is scskiller_warm's staged child, not a play session
+static bool g_staged;         // SCSFix_WarmOptions was called: this is scsfix_warm's staged child, not a play session
 static bool g_wrote_session;  // a "#session" line was written to the csv, so DLL_PROCESS_DETACH owes it a matching "#end"
 static HANDLE g_csv_h;        // the csv's file handle, for that "#end"
 static long long g_session_unix;  // that line's stamp, also the frames file's launch stamp: the two name one launch
-static uint64_t g_db_bytes, g_db_cap;  // scskiller.db's size; max_db_bytes
+static uint64_t g_db_bytes, g_db_cap;  // scsfix.db's size; max_db_bytes
 static bool g_db_capped, g_db_full;
 
 static double now_ms() { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - g_t0).count(); }
@@ -159,21 +159,21 @@ void logf(const char* fmt, ...) {  // also used by warm11.cpp
 // Admission, decided once at the first device (any path: D3D12CreateDevice, a device factory; D3D12GetInterface's hooks
 // only forward until then). The recorder records for the whole run only when all hold, else it is a pure pass-through
 // (no device hooked, nothing written):
-//  - scskiller.armed has [scskiller] armed=1 and this process's exe as it was then: the app wrote it after a clean full
+//  - scsfix.armed has [scsfix] armed=1 and this process's exe as it was then: the app wrote it after a clean full
 //    anti-cheat check of the install and deletes it on any change there (GameFiles.DetectAntiCheat walks the install;
 //    this dll doesn't);
-//  - no anti-cheat marker in this folder: the built-in list, plus scskiller.ini markers= (it only adds; malformed: no);
+//  - no anti-cheat marker in this folder: the built-in list, plus scsfix.ini markers= (it only adds; malformed: no);
 //    an attestation bound to this process (pid= and pid_time=, below) drops EasyAntiCheat's names from that list;
 //  - no anti-cheat client module loaded.
 // pid= and pid_time= (its creation FILETIME, UTC) bind the attestation to the one process the app started suspended
 // itself, without EasyAntiCheat, for an offline session: in both files, equal, and this process's. Any other launch
 // with the same files there (Steam's start_protected_game.exe, then EasyAntiCheat, then the game) is a pass-through.
-// scskiller.armed is read again after the rest: changed or gone (the app disarmed it meanwhile) is a pass-through.
+// scsfix.armed is read again after the rest: changed or gone (the app disarmed it meanwhile) is a pass-through.
 // Accepted limits: a client that loads later in an admitted run isn't caught here (the app removes the recorder and the
 // next launch isn't armed); the app arms after its check and its install watcher's events arrive milliseconds after the
 // change, so a launch inside that window may be admitted (the exe fingerprint covers updates); an anti-cheat added while
-// SCSKiller isn't running, without any change to the game's exe (the armed file stays valid with the app closed, so the
-// recorder keeps working then); another program deliberately holding SCSKiller's own ledger entry open (read-shared)
+// SCSFix isn't running, without any change to the game's exe (the armed file stays valid with the app closed, so the
+// recorder keeps working then); another program deliberately holding SCSFix's own ledger entry open (read-shared)
 // together with the game-folder file (the app's <entry>.revoked mark beside it still refuses, when it can be made).
 static const wchar_t* const kAntiCheatMarkers[] = {  // GameFiles.Markers; "*x": a name ending in x
     L"EasyAntiCheat", L"EasyAntiCheat_EOS", L"start_protected_game.exe", L"EasyAntiCheat_EOS_Setup.exe", L"EasyAntiCheat_Setup.exe",
@@ -201,7 +201,7 @@ static bool is_marker(const wchar_t* name, const std::vector<std::wstring>& mark
 static bool anti_cheat_markers(std::vector<std::wstring>& out) {
     out.assign(std::begin(kAntiCheatMarkers), std::end(kAntiCheatMarkers));
     wchar_t v[4096];
-    DWORD n = GetPrivateProfileStringW(L"scskiller", L"markers", L"", v, 4096, (g_dir + L"scskiller.ini").c_str());
+    DWORD n = GetPrivateProfileStringW(L"scsfix", L"markers", L"", v, 4096, (g_dir + L"scsfix.ini").c_str());
     if (n >= 4094) return false;
     if (!n) return true;
     std::wstring s = v;
@@ -227,7 +227,7 @@ static bool anti_cheat_beside(const std::vector<std::wstring>& markers) {
     FindClose(h);
     return found || !listed;
 }
-// scskiller.armed as it is now (at most 4 KB; "" when missing or unreadable).
+// scsfix.armed as it is now (at most 4 KB; "" when missing or unreadable).
 static std::string small_file(const std::wstring& path) {
     HANDLE h = path.empty() ? INVALID_HANDLE_VALUE : CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
     if (h == INVALID_HANDLE_VALUE) return "";
@@ -238,8 +238,8 @@ static std::string small_file(const std::wstring& path) {
     s.resize(n);
     return s;
 }
-// The app's ledger entry for this process's exe: %LOCALAPPDATA%\SCSKiller\armed\<SHA-1 of the exe's full path, UTF-16LE,
-// A-Z lowered, in hex>. The app writes it with the nonce it puts in scskiller.armed and deletes it first when it disarms:
+// The app's ledger entry for this process's exe: %LOCALAPPDATA%\SCSFix\armed\<SHA-1 of the exe's full path, UTF-16LE,
+// A-Z lowered, in hex>. The app writes it with the nonce it puts in scsfix.armed and deletes it first when it disarms:
 // its own folder, which nothing in the game holds open. "" when the folder or the exe path can't be had.
 static std::wstring ledger_path() {
     std::wstring exe(32768, L'\0');
@@ -255,31 +255,31 @@ static std::wstring ledger_path() {
     Hash h = sha1(exe.data(), exe.size() * sizeof(wchar_t));
     wchar_t hex[41] = {};
     for (int i = 0; i < 20; ++i) swprintf(hex + 2 * i, 3, L"%02x", h[i]);
-    return dir + L"\\SCSKiller\\armed\\" + hex;
+    return dir + L"\\SCSFix\\armed\\" + hex;
 }
-// Both attestations as they are now: scskiller.armed and the ledger entry.
+// Both attestations as they are now: scsfix.armed and the ledger entry.
 static std::string armed_text() {
     const std::wstring ledger = ledger_path();
-    return small_file(g_dir + L"scskiller.armed") + '\0' + small_file(ledger) + (GetFileAttributesW((ledger + L".revoked").c_str()) != INVALID_FILE_ATTRIBUTES ? "|revoked" : "");
+    return small_file(g_dir + L"scsfix.armed") + '\0' + small_file(ledger) + (GetFileAttributesW((ledger + L".revoked").c_str()) != INVALID_FILE_ATTRIBUTES ? "|revoked" : "");
 }
 // armed=1, checked= present, and the install the app checked is the one running: exe_size= and exe_time= (FILETIME, UTC)
 // are this process's exe as it was then (the app closed while the game updated has no watcher to disarm; an update that
 // adds anti-cheat ships a changed exe). bound: pid= and pid_time= name this process.
 static bool armed(bool& bound) {
     bound = false;
-    const std::wstring file = g_dir + L"scskiller.armed";
+    const std::wstring file = g_dir + L"scsfix.armed";
     wchar_t v[32];
-    GetPrivateProfileStringW(L"scskiller", L"armed", L"", v, 32, file.c_str());
+    GetPrivateProfileStringW(L"scsfix", L"armed", L"", v, 32, file.c_str());
     if (wcscmp(v, L"1")) return false;
     auto number = [&](const wchar_t* key, uint64_t& out) {
-        DWORD n = GetPrivateProfileStringW(L"scskiller", key, L"", v, 32, file.c_str());
+        DWORD n = GetPrivateProfileStringW(L"scsfix", key, L"", v, 32, file.c_str());
         if (!n || n >= 30 || !iswdigit(v[0])) return false;
         wchar_t* end;
         errno = 0;
         out = wcstoull(v, &end, 10);
         return !*end && !errno;
     };
-    if (!GetPrivateProfileStringW(L"scskiller", L"checked", L"", v, 32, file.c_str())) return false;
+    if (!GetPrivateProfileStringW(L"scsfix", L"checked", L"", v, 32, file.c_str())) return false;
     std::wstring exe(32768, L'\0');
     DWORD n = GetModuleFileNameW(nullptr, exe.data(), (DWORD)exe.size());
     WIN32_FILE_ATTRIBUTE_DATA a;
@@ -288,21 +288,21 @@ static bool armed(bool& bound) {
         return false;
     if (size != ((uint64_t)a.nFileSizeHigh << 32 | a.nFileSizeLow) || time != ((uint64_t)a.ftLastWriteTime.dwHighDateTime << 32 | a.ftLastWriteTime.dwLowDateTime))
         return false;
-    // the same nonce in the app's ledger: a scskiller.armed the app couldn't revoke (held open) has none there
+    // the same nonce in the app's ledger: a scsfix.armed the app couldn't revoke (held open) has none there
     const std::wstring ledger = ledger_path();
     if (GetFileAttributesW((ledger + L".revoked").c_str()) != INVALID_FILE_ATTRIBUTES) return false;  // the app's mark beside an entry it couldn't revoke
     wchar_t nonce[64], kept[64];
-    DWORD a1 = GetPrivateProfileStringW(L"scskiller", L"nonce", L"", nonce, 64, file.c_str());
-    DWORD a2 = ledger.empty() ? 0 : GetPrivateProfileStringW(L"scskiller", L"nonce", L"", kept, 64, ledger.c_str());
+    DWORD a1 = GetPrivateProfileStringW(L"scsfix", L"nonce", L"", nonce, 64, file.c_str());
+    DWORD a2 = ledger.empty() ? 0 : GetPrivateProfileStringW(L"scsfix", L"nonce", L"", kept, 64, ledger.c_str());
     if (a1 != 32 || a2 != 32 || wcscmp(nonce, kept)) return false;
     // the process binding: the same in both files (none in both: unbound), and this process
     for (auto key : {L"pid", L"pid_time"}) {
         wchar_t here[32], there[32];
-        DWORD n1 = GetPrivateProfileStringW(L"scskiller", key, L"", here, 32, file.c_str());
-        DWORD n2 = GetPrivateProfileStringW(L"scskiller", key, L"", there, 32, ledger.c_str());
+        DWORD n1 = GetPrivateProfileStringW(L"scsfix", key, L"", here, 32, file.c_str());
+        DWORD n2 = GetPrivateProfileStringW(L"scsfix", key, L"", there, 32, ledger.c_str());
         if (n1 != n2 || wcscmp(here, there)) return false;
     }
-    if (!GetPrivateProfileStringW(L"scskiller", L"pid", L"", v, 32, file.c_str())) return true;
+    if (!GetPrivateProfileStringW(L"scsfix", L"pid", L"", v, 32, file.c_str())) return true;
     FILETIME created, x1, x2, x3;
     uint64_t pid, at;
     if (!number(L"pid", pid) || !number(L"pid_time", at) || pid != GetCurrentProcessId() || !GetProcessTimes(GetCurrentProcess(), &created, &x1, &x2, &x3)
@@ -329,7 +329,7 @@ static void refused(const char* why) {
     CloseHandle(h);
 }
 static bool admitted() {
-    if (g_warm) return true;  // scskiller_warm's staged child replays; it is never a game
+    if (g_warm) return true;  // scsfix_warm's staged child replays; it is never a game
     static std::once_flag once;
     std::call_once(once, [] {
         std::vector<std::wstring> markers;
@@ -338,11 +338,11 @@ static bool admitted() {
         const char* why = !armed(bound) ? "not armed" : !anti_cheat_markers(markers) ? "markers= malformed" : nullptr;
         if (!why && bound) markers.erase(markers.begin(), markers.begin() + kEasyAntiCheatMarkers);  // the app started this process without EasyAntiCheat
         if (!why) why = anti_cheat_beside(markers) ? "anti-cheat next to the exe" : anti_cheat_loaded() ? "anti-cheat client loaded" : nullptr;
-        if (wchar_t ms[16]; !why && GetEnvironmentVariableW(L"SCSKILLER_TEST_ADMIT_PAUSE_MS", ms, 16)) Sleep(_wtoi(ms));  // tests: a change in between
+        if (wchar_t ms[16]; !why && GetEnvironmentVariableW(L"SCSFIX_TEST_ADMIT_PAUSE_MS", ms, 16)) Sleep(_wtoi(ms));  // tests: a change in between
         if (!why && armed_text() != attested) why = "disarmed while deciding";  // the app disarmed it meanwhile (an install change)
         {
             std::lock_guard l(g_early_mx);
-            if (!why && (g_log = _wfopen((g_dir + L"scskiller.log").c_str(), L"a"))) fputs(g_early.c_str(), g_log), fflush(g_log);
+            if (!why && (g_log = _wfopen((g_dir + L"scsfix.log").c_str(), L"a"))) fputs(g_early.c_str(), g_log), fflush(g_log);
             g_early.clear(), g_log_deferred = false;
             g_admission = why ? -1 : 1;
         }
@@ -902,7 +902,7 @@ static std::vector<Hash> so_deps(const std::string& payload, char tag) {
     return deps;
 }
 
-// scskiller.db: what the game created (append-only). scskiller_gen.db (optional, read-only, written by gen/):
+// scsfix.db: what the game created (append-only). scsfix_gen.db (optional, read-only, written by gen/):
 // 'B' blobs + 'P' plan items = template PSO key[20], root sig[20], u32 n, n x (u32 stage, hash[20]),
 // then u32 0xFFFFFFFF (keep the template's input layout) or a canonical input layout.
 static void put(char tag, const void* a, size_t an, const void* b = nullptr, size_t bn = 0) {
@@ -914,7 +914,7 @@ static void put(char tag, const void* a, size_t an, const void* b = nullptr, siz
 
 static ID3D12Device* g_warm_dev;
 static ID3D12Device2* g_warm_dev2;
-// A warm run with the game's layer (scskiller_warm --layer): the device under it, for what the layer made ('W'), which
+// A warm run with the game's layer (scsfix_warm --layer): the device under it, for what the layer made ('W'), which
 // is replayed there as recorded (build)
 static ID3D12Device* g_warm_real;
 static ID3D12Device2* g_warm_real2;
@@ -977,7 +977,7 @@ static void nv_warm_init() {
     if (init && !init()) g_nv_set_thread = (decltype(g_nv_set_thread))qi(0x43D867C0), g_nv_set_opts = (decltype(g_nv_set_opts))qi(0x5C607A27);
     logf("warm: %zu records carry NVAPI state%s", g_nvext.size(), g_nv_set_thread ? "" : "; NVAPI unavailable: they replay without it");
 }
-// SCSKILLER_WARM_ROUNDTRIP=1 (development): each recorded 'G' / 'C' / 'S' desc the warm decodes is serialized again and
+// SCSFIX_WARM_ROUNDTRIP=1 (development): each recorded 'G' / 'C' / 'S' desc the warm decodes is serialized again and
 // compared with its record (the log's "round trip" line); =only: compare without creating anything (fast, any adapter).
 static int g_roundtrip;
 static std::atomic<uint64_t> g_roundtrip_ok, g_roundtrip_bad;
@@ -1043,7 +1043,7 @@ static const Rec* parse_plan(Reader& r, Override& o) {
 
 // Shader bytes are not read into memory: the dbs are mapped read-only and each blob is a view into its file (Jedi Survivor:
 // ~2 GB of shaders). Mapped pages are the OS's to drop and reload; they don't count in the process's private bytes, which
-// the memory budget watches (SCSKiller_WarmMemory). The views stay valid until the process exits.
+// the memory budget watches (SCSFix_WarmMemory). The views stay valid until the process exits.
 static void map_blobs(const std::wstring& path, const std::vector<std::pair<Hash, std::pair<long long, uint32_t>>>& at) {
     if (at.empty()) return;
     HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
@@ -1112,8 +1112,8 @@ static void load_file(const std::wstring& path, bool main, bool with_bytes) {
     map_blobs(path, blobs);  // after the truncation: a mapped file can't be shortened
 }
 
-// scskiller.keys (record mode, written by the app next to scskiller.ini): "SCSKKEY1", then the 20-byte record keys and
-// blob hashes the app already imported, and the hashes of the shaders the game's files ship. The app empties scskiller.db
+// scsfix.keys (record mode, written by the app next to scsfix.ini): "SCSKKEY1", then the 20-byte record keys and
+// blob hashes the app already imported, and the hashes of the shaders the game's files ship. The app empties scsfix.db
 // after an import and reads a shipped shader back from the install, so a record naming these goes in without their bytes.
 // Kept as the file's own array, sorted: a big game ships 300,000 shaders (6 MB here, 70 MB as hash set entries).
 static std::vector<Hash> g_imported;
@@ -1136,18 +1136,18 @@ static size_t load_keys(const std::wstring& path) {
 static void load_db(bool with_bytes) {
     // deny-write, before the load: what is read and repaired can't change under it, and a second process of the folder
     // (another instance, a launcher) records and repairs nothing rather than interleaving with or cutting this one's records
-    g_db = _wfsopen((g_dir + L"scskiller.db").c_str(), L"ab", _SH_DENYWR);
-    if (!g_db) logf("db: scskiller.db is open in another process: nothing is recorded in this one");
-    load_file(g_dir + L"scskiller.db", true, with_bytes);
-    if (size_t n = with_bytes ? 0 : load_keys(g_dir + L"scskiller.keys")) logf("db: %zu keys of records and blobs imported earlier or shipped with the game", n);
+    g_db = _wfsopen((g_dir + L"scsfix.db").c_str(), L"ab", _SH_DENYWR);
+    if (!g_db) logf("db: scsfix.db is open in another process: nothing is recorded in this one");
+    load_file(g_dir + L"scsfix.db", true, with_bytes);
+    if (size_t n = with_bytes ? 0 : load_keys(g_dir + L"scsfix.keys")) logf("db: %zu keys of records and blobs imported earlier or shipped with the game", n);
     g_db_records_at_start = g_keys.size();
     size_t rec_tuples = g_known_tuples.size();
-    load_file(g_dir + L"scskiller_gen.db", false, with_bytes);
+    load_file(g_dir + L"scsfix_gen.db", false, with_bytes);
     g_total = g_recs.size() + g_plan.size() + g_items11.size();
     WIN32_FILE_ATTRIBUTE_DATA fa;
-    if (GetFileAttributesExW((g_dir + L"scskiller.db").c_str(), GetFileExInfoStandard, &fa)) g_db_bytes = (uint64_t)fa.nFileSizeHigh << 32 | fa.nFileSizeLow;
-    wchar_t cap[32];  // not cfg(): a staged warm child may inherit SCSKILLER_* variables
-    GetPrivateProfileStringW(L"scskiller", L"max_db_bytes", L"", cap, 32, (g_dir + L"scskiller.ini").c_str());
+    if (GetFileAttributesExW((g_dir + L"scsfix.db").c_str(), GetFileExInfoStandard, &fa)) g_db_bytes = (uint64_t)fa.nFileSizeHigh << 32 | fa.nFileSizeLow;
+    wchar_t cap[32];  // not cfg(): a staged warm child may inherit SCSFIX_* variables
+    GetPrivateProfileStringW(L"scsfix", L"max_db_bytes", L"", cap, 32, (g_dir + L"scsfix.ini").c_str());
     g_db_capped = *cap, g_db_cap = _wcstoui64(cap, nullptr, 10);
     if (g_db_capped) logf("db: %llu bytes, limit %llu", g_db_bytes, g_db_cap);
     logf("db: %llu PSOs / %zu shader tuples recorded, +%zu tuples generated, %zu blobs (mode=%s)", g_db_records_at_start,
@@ -1157,7 +1157,7 @@ static void load_db(bool with_bytes) {
 // A failed write (a full disk) may leave part of a record: nothing more is appended, so it stays the tail the next launch cuts.
 static void db_flush() {
     if (!fflush(g_db) && !ferror(g_db)) return;
-    logf("db: writing scskiller.db failed (disk full?): nothing more is recorded in this launch");
+    logf("db: writing scsfix.db failed (disk full?): nothing more is recorded in this launch");
     fclose(g_db), g_db = nullptr;
 }
 
@@ -1259,7 +1259,7 @@ static ID3D12RootSignature* warm_rootsig(const Hash& h) {
     return it->second;
 }
 
-// SCSKILLER_D3D12_DEBUG=1 (development): the D3D12 debug layer (Windows' optional "Graphics Tools" feature) is enabled
+// SCSFIX_D3D12_DEBUG=1 (development): the D3D12 debug layer (Windows' optional "Graphics Tools" feature) is enabled
 // before the device is created, and its messages are logged: after each failed item and at the end of the warm.
 static bool g_debug12;
 static ID3D12InfoQueue* g_iq;
@@ -1313,11 +1313,11 @@ static std::vector<char> g_so_keep;
 
 // After a fault or a hang in a state object call this process's driver can't be trusted (the NVIDIA case at g_parked). The
 // process is "poisoned": state objects taken after that are left unfinished without calling the driver, PSOs go on, and the
-// run ends with a retry (SCSKiller_Retry): a new process replays from the first unfinished item with a quarter of the ray
+// run ends with a retry (SCSFix_Retry): a new process replays from the first unfinished item with a quarter of the ray
 // tracing threads (32 -> 8 -> 2 -> 1). Only a state object that faults or hangs with 1 ray tracing thread counts as failed,
-// and later runs skip it (SCSKiller_WarmRt).
+// and later runs skip it (SCSFix_WarmRt).
 static std::atomic<bool> g_rt_off;                 // poisoned
-static int g_rt_threads;                           // SCSKiller_WarmRt: concurrent state object creates, 0 = no limit
+static int g_rt_threads;                           // SCSFix_WarmRt: concurrent state object creates, 0 = no limit
 static std::unordered_set<size_t> g_skip;          // --skip: counted failed, never replayed
 static std::atomic<size_t> g_rt_fatal = SIZE_MAX;  // this run's item that faulted / hung alone
 static void rt_stop(const char* why, size_t j) {
@@ -1332,15 +1332,15 @@ static void rt_stop(const char* why, size_t j) {
 
 // A removed device (DXGI_ERROR_DEVICE_REMOVED; AMD: two compute PSOs a game never used) fails every later create of the
 // process. The replay stops and the run ends with a retry: the new process creates the items that were in flight alone
-// before its workers start (SCSKiller_WarmCrash), and the one that removes the device alone is skipped by its key from then
+// before its workers start (SCSFix_WarmCrash), and the one that removes the device alone is skipped by its key from then
 // on (--skip-keys; the app keeps them per game). One item in flight is blamed at once.
 static std::atomic<bool> g_removed;
 static HashSet g_crash_keys;                    // keys of items that removed the device in an earlier run
 static std::unordered_set<size_t> g_crash;      // this run's items with one of those keys: never replayed
 static std::vector<size_t> g_alone;             // in flight when an earlier process's device was removed
 static std::vector<size_t> g_blamed, g_alone_next;
-static std::string g_crash_json, g_alone_json;  // SCSKiller_Crashes
-static size_t g_remove_item = SIZE_MAX;         // SCSKILLER_WARM_REMOVE=<item> (development): its create removes the device first
+static std::string g_crash_json, g_alone_json;  // SCSFix_Crashes
+static size_t g_remove_item = SIZE_MAX;         // SCSFIX_WARM_REMOVE=<item> (development): its create removes the device first
 static bool removed() {
     if (g_removed) return true;
     HRESULT why = g_warm_dev ? g_warm_dev->GetDeviceRemovedReason() : S_OK;
@@ -1349,7 +1349,7 @@ static bool removed() {
     return true;
 }
 
-static SIZE_T g_fault_item = SIZE_MAX;  // SCSKILLER_WARM_FAULT=<item>:<av|hang> (development): a fault / hang in that state object
+static SIZE_T g_fault_item = SIZE_MAX;  // SCSFIX_WARM_FAULT=<item>:<av|hang> (development): a fault / hang in that state object
 static int g_fault_kind;                // 1 access violation after the create, 2 a create that never returns
 
 static __declspec(noinline) HRESULT so_call(const Rec& rec, const D3D12_STATE_OBJECT_DESC* d, ID3D12StateObject* base, ID3D12StateObject** out, size_t j) {
@@ -1376,14 +1376,14 @@ static __declspec(noinline) void so_release(ID3D12StateObject* o) {  // the driv
 // State objects are never released on worker threads while others create them: the NVIDIA driver (610.88, Jedi Survivor's
 // v15 warm) took an access violation in a collection's teardown on 32 threads and left its exclusive lock held (every worker
 // then waited in D3D12Core!CStateObject::FinalRelease -> nvwgf2umx NVDEV_Thunk). Created objects are parked and released on
-// one thread after the workers join; over SCSKILLER_WARM_RT_PARK_MB of private memory (default 2048: Jedi's 12,792 objects
+// one thread after the workers join; over SCSFIX_WARM_RT_PARK_MB of private memory (default 2048: Jedi's 12,792 objects
 // peak at ~8.3 GB kept alive, ~0.65 MB each; 0 = release as you go, for A/B runs) they are released in a batch while no
 // create runs (g_rt_gate). NVIDIA writes its cache at create, so parking costs only memory.
 static std::mutex g_parkmx;
 static std::vector<ID3D12StateObject*> g_parked;
 static std::shared_mutex g_rt_gate;  // creates shared, a batch release exclusive
 static size_t g_park_mb = 2048;
-// SCSKiller_WarmMemory: the staged process's private memory budget in MB (0 = none). Shader bytes are mapped, not counted
+// SCSFix_WarmMemory: the staged process's private memory budget in MB (0 = none). Shader bytes are mapped, not counted
 // (map_blobs); parked state objects get a quarter of it; over it the supervisor releases them, then lowers the number of
 // workers allowed to run (g_allowed) until it drops back, and raises it again once well under.
 static uint32_t g_mem_mb;
@@ -1539,7 +1539,7 @@ static int replay_guarded(size_t j, size_t nrec) {
 }
 
 // This run's items: 0 not taken, 1 created (or skipped: g_crash), 2 failed, 3 unfinished (left for the retry), 4 not created:
-// the device was removed while it was in flight. SCSKiller_Retry reads them.
+// the device was removed while it was in flight. SCSFix_Retry reads them.
 static std::vector<uint8_t> g_item_state;
 static size_t g_retry_from = SIZE_MAX;  // set when the warm ends poisoned with items unfinished
 static uint64_t g_retry_failed;         // failures among the items before g_retry_from (the rest are counted by the retry)
@@ -1576,7 +1576,7 @@ struct Worker11 {
     std::map<std::string, uint64_t> tally;  // "<stage> ok" / "<stage> failed: <why>"; read after finished
 };
 
-static size_t g_hang11 = SIZE_MAX;  // tests (SCSKILLER_TEST_HANG11): this item's call never returns, like a hung driver
+static size_t g_hang11 = SIZE_MAX;  // tests (SCSFIX_TEST_HANG11): this item's call never returns, like a hung driver
 
 static void worker11(Worker11& w, std::atomic<size_t>& next, size_t n, bool debug) {
     static const char* names[] = {"?", "VS", "PS", "DS", "HS", "GS", "CS", "HS+DS"};
@@ -1638,14 +1638,14 @@ static thread_local bool t_replay;  // a warm worker: its creates reach the hook
 
 static void warm11_main(size_t first) {
     const size_t n = g_items11.size();
-    const bool debug = GetEnvironmentVariableW(L"SCSKILLER_D3D11_DEBUG", nullptr, 0) > 0;  // D3D11 debug layer, for development
+    const bool debug = GetEnvironmentVariableW(L"SCSFIX_D3D11_DEBUG", nullptr, 0) > 0;  // D3D11 debug layer, for development
     // Devices = threads. Measured (NVIDIA, 3500 cold Orcs Must Die 3 shaders, zero-count indirect draws): 2: 714/s,
     // 4: 1030/s, 8: 1130/s; the full 17752 cached: ~3600/s. Idle or below-normal priority: same on an idle machine.
     const int threads = std::min(g_threads, 4);
     // One call (a create + draw, or the flush of a batch of 16) taking this long is a hang, not a slow compile.
     double stuck_ms = 60000, stuck_stop_ms = 2000;  // ponytail: fixed limits, measure the slowest real batch if they bite
     wchar_t test[64];
-    if (GetEnvironmentVariableW(L"SCSKILLER_TEST_HANG11", test, 64)) swscanf_s(test, L"%zu,%lf", &g_hang11, &stuck_ms);  // "<item>,<limit ms>"
+    if (GetEnvironmentVariableW(L"SCSFIX_TEST_HANG11", test, 64)) swscanf_s(test, L"%zu,%lf", &g_hang11, &stuck_ms);  // "<item>,<limit ms>"
     auto next = new std::atomic<size_t>(first);  // leaked with the workers if one is abandoned
     std::vector<Worker11*> ws;
     std::map<std::string, uint64_t> tally;
@@ -1701,13 +1701,13 @@ static void warm_main() {
     auto t0 = now_ms();
     logf("warm: compiling %zu recorded + %zu generated PSOs + %zu D3D11 shaders from item %zu on %d threads", nrec, g_plan.size(),
          g_items11.size(), first, g_threads);
-    // SCSKILLER_WARM_TIMES=1 (development): stage\scskiller_warm_times.csv, "item,ms,ok" per PSO (A/B tests of what a warm leaves cached)
-    FILE* times = GetEnvironmentVariableW(L"SCSKILLER_WARM_TIMES", nullptr, 0) ? _wfopen((g_dir + L"scskiller_warm_times.csv").c_str(), L"w") : nullptr;
+    // SCSFIX_WARM_TIMES=1 (development): stage\scsfix_warm_times.csv, "item,ms,ok" per PSO (A/B tests of what a warm leaves cached)
+    FILE* times = GetEnvironmentVariableW(L"SCSFIX_WARM_TIMES", nullptr, 0) ? _wfopen((g_dir + L"scsfix_warm_times.csv").c_str(), L"w") : nullptr;
     wchar_t rt[8] = {};
-    if (GetEnvironmentVariableW(L"SCSKILLER_WARM_ROUNDTRIP", rt, 8)) g_roundtrip = wcscmp(rt, L"only") ? 1 : 2;
+    if (GetEnvironmentVariableW(L"SCSFIX_WARM_ROUNDTRIP", rt, 8)) g_roundtrip = wcscmp(rt, L"only") ? 1 : 2;
     wchar_t env[16] = {};
     if (g_mem_mb) g_park_mb = std::max<uint32_t>(256, g_mem_mb / 4);
-    if (GetEnvironmentVariableW(L"SCSKILLER_WARM_RT_PARK_MB", env, 16)) g_park_mb = _wtoi(env);
+    if (GetEnvironmentVariableW(L"SCSFIX_WARM_RT_PARK_MB", env, 16)) g_park_mb = _wtoi(env);
     g_allowed = g_threads;
     if (g_mem_mb && private_mb() > g_mem_mb)  // the dbs' records alone are over it: start with one worker
         g_allowed = 1, logf("warm: private memory %.0f MB over the %u MB budget at the start: 1 worker", private_mb(), g_mem_mb);
@@ -1728,9 +1728,9 @@ static void warm_main() {
             if (k < nrec && g_so[k]) std::call_once(g_so[k]->once, [&] { g_so[k]->hr = E_FAIL, g_so[k]->why = "it removed the device in an earlier run"; });
         logf("warm: %zu items skipped: they removed the device in an earlier run", g_crash.size());
     }
-    wchar_t fault[32] = {};  // SCSKILLER_WARM_FAULT=<item>:<av|hang> (development): see so_call
-    if (GetEnvironmentVariableW(L"SCSKILLER_WARM_FAULT", fault, 32)) g_fault_item = _wtoi64(fault), g_fault_kind = wcsstr(fault, L"hang") ? 2 : 1;
-    if (GetEnvironmentVariableW(L"SCSKILLER_WARM_REMOVE", fault, 32)) g_remove_item = _wtoi64(fault);
+    wchar_t fault[32] = {};  // SCSFIX_WARM_FAULT=<item>:<av|hang> (development): see so_call
+    if (GetEnvironmentVariableW(L"SCSFIX_WARM_FAULT", fault, 32)) g_fault_item = _wtoi64(fault), g_fault_kind = wcsstr(fault, L"hang") ? 2 : 1;
+    if (GetEnvironmentVariableW(L"SCSFIX_WARM_REMOVE", fault, 32)) g_remove_item = _wtoi64(fault);
     // In flight when an earlier process's device was removed: each alone, before the workers, so a removal names its item.
     // ponytail: no supervisor over these few; a create that hangs here stalls the run like a hung driver does anywhere
     size_t blamed_alone = SIZE_MAX, alone_at = 0;
@@ -1745,8 +1745,8 @@ static void warm_main() {
         logf("warm: item %zu, in flight when the device was removed, created alone: %s", k, ok == 1 ? "ok" : ok == 0 ? "failed" : "left");
     }
     if (blamed_alone != SIZE_MAX) logf("warm: item %zu removed the device alone: later runs skip it", blamed_alone);
-    wchar_t stuck_env[16] = {};  // SCSKILLER_WARM_STUCK_S (development): the per-item limit, default 60 s
-    double stuck_ms = GetEnvironmentVariableW(L"SCSKILLER_WARM_STUCK_S", stuck_env, 16) ? 1000.0 * _wtoi(stuck_env) : 60000, stuck_stop_ms = 2000;
+    wchar_t stuck_env[16] = {};  // SCSFIX_WARM_STUCK_S (development): the per-item limit, default 60 s
+    double stuck_ms = GetEnvironmentVariableW(L"SCSFIX_WARM_STUCK_S", stuck_env, 16) ? 1000.0 * _wtoi(stuck_env) : 60000, stuck_stop_ms = 2000;
 
     // Workers take items in file order. A supervisor (this thread) abandons a worker stuck in one item for over stuck_ms (2 s
     // once stopping), as warm11 does: the item counts as failed, a stuck state object stops the ray tracing phase (rt_stop),
@@ -1898,7 +1898,7 @@ static void warm_main() {
     if (times) fclose(times);
     for (auto& h : crash_found) g_crash_json += (g_crash_json.empty() ? "\"" : ",\"") + std::string(hex(h).data()) + "\"";
     for (size_t j : g_alone_next) g_alone_json += (g_alone_json.empty() ? "" : ",") + std::to_string(j);
-    if (g_warm_faults >= 3) logf("warm: stopped after repeated faults; the game is unaffected, report scskiller.log");
+    if (g_warm_faults >= 3) logf("warm: stopped after repeated faults; the game is unaffected, report scsfix.log");
     if (g_state == STOP) logf("warm: stopped at item %llu of %zu", first + warm_done(), n);
     if (!g_abandoned11 && !g_abandoned12) {  // shader bytes and plan are only needed for the replay
         decltype(g_blob_bytes)().swap(g_blob_bytes);
@@ -2086,8 +2086,8 @@ static void install_hooks(IUnknown* unk) {
     static std::once_flag once;
     std::call_once(once, [] {
         load_db(g_warm);
-        g_csv = _wfopen((g_dir + L"scskiller_creates.csv").c_str(), L"a");
-        if (g_csv && !g_staged) {  // a staged scskiller_warm run is a warm-up, not a play session: no marker
+        g_csv = _wfopen((g_dir + L"scsfix_creates.csv").c_str(), L"a");
+        if (g_csv && !g_staged) {  // a staged scsfix_warm run is a warm-up, not a play session: no marker
             g_session_unix = unix_ms();
             double t = now_ms();  // #clock: the stamp on the t_ms clock, which starts when the recorder loads
             fprintf(g_csv, "#session,%lld,%ls\n#clock,%.1f\n", g_session_unix, exe_name().c_str(), t);
@@ -2335,7 +2335,7 @@ static void hook_below(ID3D12Device* dev, const char* layer) {
 // factory of a dxgi.dll shares one vtable). The frame is the QPC when the outermost Present / Present1 of a thread
 // returns, so a wrapper's swap chain (a mod, an overlay, Streamline) calling the real one counts once; PresentMon's
 // FrameTime is the same return-to-return interval. The hook only queues the timestamp; frame_writer writes the file.
-// scskiller_frames.bin, the last launch that presented, u32 records (little-endian):
+// scsfix_frames.bin, the last launch that presented, u32 records (little-endian):
 //   0xFFFFFFFF + u64 unix_ms (the csv's #session stamp), u64 us since the recorder loaded (the csv's t_ms clock), u64 QPC, u64 QPC frequency:
 //     a launch, taken together; the frames after it count from that instant.
 //   top 4 bits 0-14: a frame of that swap chain (0 = the first seen, 14 = the 15th and later), the low 28 bits the
@@ -2489,13 +2489,13 @@ static bool g_frames_full;
 static void frames_flush(std::vector<FrameAt>& q) {
     if (q.empty() || g_frames_full) return q.clear();
     if (g_frames == INVALID_HANDLE_VALUE) {  // the last launch that presented replaces the file: a probe that never presents keeps it
-        g_frames = CreateFileW((g_dir + L"scskiller_frames.bin").c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
+        g_frames = CreateFileW((g_dir + L"scsfix_frames.bin").c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (g_frames == INVALID_HANDLE_VALUE) return q.clear(), logf("frames: scskiller_frames.bin can't be written (%lu)", GetLastError());
+        if (g_frames == INVALID_HANDLE_VALUE) return q.clear(), logf("frames: scsfix_frames.bin can't be written (%lu)", GetLastError());
         uint32_t mark = 0xFFFFFFFF;
         DWORD a = 0, b = 0;
         if (!WriteFile(g_frames, &mark, 4, &a, nullptr) || !WriteFile(g_frames, g_fhead, sizeof g_fhead, &b, nullptr) || a + b != 4 + sizeof g_fhead)
-            return q.clear(), g_frames_full = true, logf("frames: writing scskiller_frames.bin failed (%lu), no frames written", GetLastError());
+            return q.clear(), g_frames_full = true, logf("frames: writing scsfix_frames.bin failed (%lu), no frames written", GetLastError());
     }
     for (auto& f : q) g_fenc.put(f);
     q.clear();
@@ -2503,7 +2503,7 @@ static void frames_flush(std::vector<FrameAt>& q) {
     DWORD n = (DWORD)(o.size() * 4), done = 0;
     if (g_fenc.bytes + n > kFramesCap) g_frames_full = true, logf("frames: %llu bytes this launch, no more frames written", g_fenc.bytes);
     else if (!WriteFile(g_frames, o.data(), n, &done, nullptr) || done != n)
-        g_frames_full = true, logf("frames: writing scskiller_frames.bin failed (%lu), no more frames written", GetLastError());
+        g_frames_full = true, logf("frames: writing scsfix_frames.bin failed (%lu), no more frames written", GetLastError());
     else g_fenc.bytes += n;
     o.clear();
 }
@@ -2526,9 +2526,9 @@ static void frame_writer() {
 
 static void frame_hooks() {
     if (g_warm) return;
-    wchar_t on[8];  // not cfg(): a staged warm child may inherit SCSKILLER_* variables
-    GetPrivateProfileStringW(L"scskiller", L"frames", L"1", on, 8, (g_dir + L"scskiller.ini").c_str());
-    if (!wcscmp(on, L"0")) return logf("frames: off (scskiller.ini frames=0)");
+    wchar_t on[8];  // not cfg(): a staged warm child may inherit SCSFIX_* variables
+    GetPrivateProfileStringW(L"scsfix", L"frames", L"1", on, 8, (g_dir + L"scsfix.ini").c_str());
+    if (!wcscmp(on, L"0")) return logf("frames: off (scsfix.ini frames=0)");
     // the dxgi.dll the game uses: a mod's in the game folder, if one is loaded by that name
     HMODULE m = GetModuleHandleW(L"dxgi.dll");
     if (!m) m = LoadLibraryW(L"dxgi.dll");
@@ -2640,7 +2640,7 @@ static HRESULT device_created(HRESULT hr, IUnknown* adapter, D3D_FEATURE_LEVEL f
 extern "C" HRESULT WINAPI Proxy_D3D12CreateDevice(IUnknown* adapter, D3D_FEATURE_LEVEL fl, REFIID riid, void** pp) {
     static std::once_flag once;
     std::call_once(once, [] {
-        if (!(g_debug12 = GetEnvironmentVariableW(L"SCSKILLER_D3D12_DEBUG", nullptr, 0) > 0)) return;
+        if (!(g_debug12 = GetEnvironmentVariableW(L"SCSFIX_D3D12_DEBUG", nullptr, 0) > 0)) return;
         ID3D12Debug* dbg = nullptr;
         HRESULT dhr = ((decltype(&D3D12GetDebugInterface))real_D3D12GetDebugInterface)(IID_PPV_ARGS(&dbg));
         if (SUCCEEDED(dhr)) dbg->EnableDebugLayer(), dbg->Release();
@@ -2713,31 +2713,31 @@ extern "C" HRESULT WINAPI Proxy_D3D12GetInterface(REFCLSID clsid, REFIID riid, v
     return hr;
 }
 
-// For scskiller_warm: start the replay on a device created through this dll (no PSO create needed to trigger it).
-extern "C" void WINAPI SCSKiller_StartWarm(IUnknown* unk) {
+// For scsfix_warm: start the replay on a device created through this dll (no PSO create needed to trigger it).
+extern "C" void WINAPI SCSFix_StartWarm(IUnknown* unk) {
     ID3D12Device* dev;
     if (SUCCEEDED(unk->QueryInterface(IID_PPV_ARGS(&dev)))) on_first_pso(dev), dev->Release();
 }
 
-// For scskiller_warm, before SCSKiller_StartWarm: threads (0 = default), idle priority, first item to replay.
-// Only scskiller_warm's staged child calls this, so it also marks the run as a warm-up, not a play session.
-extern "C" void WINAPI SCSKiller_WarmOptions(int threads, BOOL idle, uint64_t start) {
+// For scsfix_warm, before SCSFix_StartWarm: threads (0 = default), idle priority, first item to replay.
+// Only scsfix_warm's staged child calls this, so it also marks the run as a warm-up, not a play session.
+extern "C" void WINAPI SCSFix_WarmOptions(int threads, BOOL idle, uint64_t start) {
     g_staged = true;
     if (threads > 0) g_threads = threads;
     g_prio = idle ? THREAD_PRIORITY_IDLE : THREAD_PRIORITY_BELOW_NORMAL;
     g_start = start;
 }
 
-// For scskiller_warm, before SCSKiller_StartWarm (a retry): concurrent state object creates (0 = as many as the workers)
+// For scsfix_warm, before SCSFix_StartWarm (a retry): concurrent state object creates (0 = as many as the workers)
 // and the items an earlier run found faulting or hanging alone (counted failed, never replayed).
-extern "C" void WINAPI SCSKiller_WarmRt(int rt_threads, const uint64_t* skip, uint32_t nskip) {
+extern "C" void WINAPI SCSFix_WarmRt(int rt_threads, const uint64_t* skip, uint32_t nskip) {
     g_rt_threads = rt_threads;
     for (uint32_t i = 0; i < nskip; ++i) g_skip.insert((size_t)skip[i]);
 }
 
-// For scskiller_warm, before SCSKiller_StartWarm: the keys (20 bytes each) of items that removed the device in an earlier run,
+// For scsfix_warm, before SCSFix_StartWarm: the keys (20 bytes each) of items that removed the device in an earlier run,
 // never replayed, and the items to create alone before the workers start (in flight when an earlier process's device was removed).
-extern "C" void WINAPI SCSKiller_WarmCrash(const uint8_t* keys, uint32_t nkeys, const uint64_t* alone, uint32_t nalone) {
+extern "C" void WINAPI SCSFix_WarmCrash(const uint8_t* keys, uint32_t nkeys, const uint64_t* alone, uint32_t nalone) {
     for (uint32_t i = 0; i < nkeys; ++i) {
         Hash h;
         memcpy(h.data(), keys + 20 * i, 20);
@@ -2747,44 +2747,44 @@ extern "C" void WINAPI SCSKiller_WarmCrash(const uint8_t* keys, uint32_t nkeys, 
     std::sort(g_alone.begin(), g_alone.end());
 }
 
-// For scskiller_warm, after the warm finished: whether the device was removed; the keys of this run's items that remove it
+// For scsfix_warm, after the warm finished: whether the device was removed; the keys of this run's items that remove it
 // (skipped, or blamed now) as JSON strings joined by commas; the items the retry creates alone first, joined by commas.
-extern "C" BOOL WINAPI SCSKiller_Crashes(const char** keys, const char** alone) {
+extern "C" BOOL WINAPI SCSFix_Crashes(const char** keys, const char** alone) {
     *keys = g_crash_json.c_str(), *alone = g_alone_json.c_str();
     return g_removed;
 }
 
-// For scskiller_warm, before SCSKiller_StartWarm: the process's private memory budget in MB (0 = none), see g_mem_mb.
-extern "C" void WINAPI SCSKiller_WarmMemory(uint32_t mb) { g_mem_mb = mb; }
+// For scsfix_warm, before SCSFix_StartWarm: the process's private memory budget in MB (0 = none), see g_mem_mb.
+extern "C" void WINAPI SCSFix_WarmMemory(uint32_t mb) { g_mem_mb = mb; }
 
-// For scskiller_warm, before SCSKiller_StartWarm: each item's pass (n = the item count) and the one this process creates.
-extern "C" void WINAPI SCSKiller_WarmPass(const uint8_t* pass_of, uint64_t n, uint32_t pass) {
+// For scsfix_warm, before SCSFix_StartWarm: each item's pass (n = the item count) and the one this process creates.
+extern "C" void WINAPI SCSFix_WarmPass(const uint8_t* pass_of, uint64_t n, uint32_t pass) {
     g_pass_of.assign(pass_of, pass_of + n);
     g_pass = (uint8_t)pass;
 }
 
-// For scskiller_warm, after the warm finished: {1 = the run ended poisoned and a new process must go on, the first item to
+// For scsfix_warm, after the warm finished: {1 = the run ended poisoned and a new process must go on, the first item to
 // replay (--start), its ray tracing threads, failures among the items before it, this run's item that failed alone or ~0}.
-extern "C" void WINAPI SCSKiller_Retry(uint64_t out[5]) {
+extern "C" void WINAPI SCSFix_Retry(uint64_t out[5]) {
     int rt = g_removed ? g_rt_threads : std::max(1, (g_rt_threads ? g_rt_threads : g_threads) / 4);
     uint64_t v[5] = {g_retry_from != SIZE_MAX, g_retry_from, (uint64_t)rt, g_retry_failed, g_rt_fatal == SIZE_MAX ? ~0ull : (uint64_t)g_rt_fatal};
     memcpy(out, v, sizeof v);
 }
 
-// For scskiller_warm, never blocks: {done (items before the start offset count as done), total, failed, warm finished}.
-extern "C" void WINAPI SCSKiller_Progress(uint64_t out[4]) {
+// For scsfix_warm, never blocks: {done (items before the start offset count as done), total, failed, warm finished}.
+extern "C" void WINAPI SCSFix_Progress(uint64_t out[4]) {
     uint64_t v[4] = {std::min(g_start, g_total) + warm_done(), g_total, g_warm_fail, WaitForSingleObject(g_warm_done, 0) == WAIT_OBJECT_0};
     memcpy(out, v, sizeof v);
 }
 
-// For scskiller_warm: RUN, PAUSE (workers wait before their next item) or STOP (workers take no more items, in-flight
+// For scsfix_warm: RUN, PAUSE (workers wait before their next item) or STOP (workers take no more items, in-flight
 // ones finish, the warm ends normally). STOP is final.
-extern "C" void WINAPI SCSKiller_Control(int state) {
+extern "C" void WINAPI SCSFix_Control(int state) {
     for (int s = g_state; s != STOP && !g_state.compare_exchange_weak(s, state);) {}
 }
 
 // For the self-test: {db PSOs at start, db PSOs now, warm ok, warm fail, known hits, tuple-known hits, library loads}. Blocks until warm is done.
-extern "C" void WINAPI SCSKiller_Stats(uint64_t out[7]) {
+extern "C" void WINAPI SCSFix_Stats(uint64_t out[7]) {
     WaitForSingleObject(g_warm_done, INFINITE);
     std::lock_guard l(g_mx);
     uint64_t v[7] = {g_db_records_at_start, g_keys.size(), g_warm_ok, g_warm_fail, g_known_hits, g_tuple_hits, g_lib_loads};
@@ -2794,7 +2794,7 @@ extern "C" void WINAPI SCSKiller_Stats(uint64_t out[7]) {
 static std::wstring cfg(const wchar_t* env, const wchar_t* key, const wchar_t* def) {
     wchar_t v[64];
     if (GetEnvironmentVariableW(env, v, 64)) return v;
-    GetPrivateProfileStringW(L"scskiller", key, def, v, 64, (g_dir + L"scskiller.ini").c_str());
+    GetPrivateProfileStringW(L"scsfix", key, def, v, 64, (g_dir + L"scsfix.ini").c_str());
     return v;
 }
 
@@ -2830,7 +2830,7 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID reserved) {
     // next=<file name>: a mod's d3d12.dll renamed next to us (the app's "record alongside"); every export goes to it first.
     // A bare file name only. If it doesn't load or has no D3D12CreateDevice, the system dll serves alone (the game still runs).
     wchar_t next[64];
-    GetPrivateProfileStringW(L"scskiller", L"next", L"", next, 64, (g_dir + L"scskiller.ini").c_str());
+    GetPrivateProfileStringW(L"scsfix", L"next", L"", next, 64, (g_dir + L"scsfix.ini").c_str());
     HMODULE mod = nullptr;
     const char* next_why = nullptr;
     if (*next && (wcspbrk(next, L"\\/:") || wcsstr(next, L"..")))
@@ -2847,18 +2847,18 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID reserved) {
 #undef RES
     real_Ordinal99 = (void*)GetProcAddress(g_real, MAKEINTRESOURCEA(99));  // ordinals are per dll: a mod's 99 is something else
     real_CreateDevice = (PFN_CreateDevice)res("D3D12CreateDevice");
-    // Only scskiller_warm (and selftest) export SCSKiller_WarmHost; its staged child runs under the game's exe name, so the
+    // Only scsfix_warm (and selftest) export SCSFix_WarmHost; its staged child runs under the game's exe name, so the
     // name can't tell. A game given mode=warm records instead.
-    const bool warm_asked = cfg(L"SCSKILLER_MODE", L"mode", L"record") == L"warm";
-    g_warm = warm_asked && GetProcAddress(GetModuleHandleW(nullptr), "SCSKiller_WarmHost");
-    g_threads = _wtoi(cfg(L"SCSKILLER_THREADS", L"threads", L"0").c_str());
+    const bool warm_asked = cfg(L"SCSFIX_MODE", L"mode", L"record") == L"warm";
+    g_warm = warm_asked && GetProcAddress(GetModuleHandleW(nullptr), "SCSFix_WarmHost");
+    g_threads = _wtoi(cfg(L"SCSFIX_THREADS", L"threads", L"0").c_str());
     if (g_threads <= 0) g_threads = std::max(1, (int)std::thread::hardware_concurrency() - 2);
     if (!g_warm) SetEvent(g_warm_done);
-    if (g_warm) g_log = _wfopen((g_dir + L"scskiller.log").c_str(), L"a");
+    if (g_warm) g_log = _wfopen((g_dir + L"scsfix.log").c_str(), L"a");
     else g_log_deferred = true;  // opened by admitted(), at the first device
     GetModuleFileNameW(nullptr, p, MAX_PATH);
     logf("loaded into %ls", p);
-    if (warm_asked && !g_warm) logf("mode warm ignored: this process isn't scskiller_warm, it records");
+    if (warm_asked && !g_warm) logf("mode warm ignored: this process isn't scsfix_warm, it records");
     g_next = mod;
     if (mod) logf("next: %ls (the device and every export it has come from it)", next);
     else if (next_why) logf("next: %ls %s: the system d3d12.dll is used without it", next, next_why);

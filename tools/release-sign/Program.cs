@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using SCSKiller.Core.App;
+using SCSFix.Core.App;
 
 // The offline half of the signed update feed (docs/patreon-and-updates.md §4.3). Same code as the client's check (FeedTrust).
 //   keygen <key-file>                                                         new key; prints the public key to pin
@@ -42,7 +42,7 @@ static int Keygen(string file)
     using (var f = new FileStream(OutsideGit(file), FileMode.CreateNew, FileAccess.Write)) f.Write(Encoding.ASCII.GetBytes(seed + "\n"));   // never overwrites
     Console.WriteLine($"wrote {Path.GetFullPath(file)}: the private key, keep it offline");
     Console.WriteLine($"public key: {pub}");
-    Console.WriteLine("pin it in FeedTrust.ReleaseKeys (src/SCSKiller.Core/App/Updates.cs) as rel-a (primary) or rel-b (backup)");
+    Console.WriteLine("pin it in FeedTrust.ReleaseKeys (src/SCSFix.Core/App/Updates.cs) as rel-a (primary) or rel-b (backup)");
     return 0;
 }
 
