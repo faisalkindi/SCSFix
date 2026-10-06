@@ -786,6 +786,15 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   exe's and the exe's folder holds a file of the proxy's name, that folder is used, and the log says so. A recorder the game never
   loaded (the exe's last run began after it went in, and none of its files exists) is named on the game's page
   (`ScsFix.NotLoaded`).
+- **Streamline**: its interposer (`sl.interposer.dll`) exports `D3D12CreateDevice` and calls the system `d3d12.dll`'s by the
+  system folder's path, so a game that makes its device through it (Dead Space) never reaches the recorder's export, though the
+  recorder is loaded and nothing is recorded. With `sl.interposer.dll` beside the exe (or loaded) the D3D12 role hooks the system
+  `D3D12CreateDevice` at its entry (`hook_fn`, as for nvapi; the entry's first instruction is moved, and a Windows build whose
+  entry doesn't start with one that can be moved logs that it isn't hooked), so every device reaches the same path as one made
+  through the export; a create through the export is counted once (`t_in_create`). Not with a mod chained (`next=`). The D3D11
+  role, loaded at start where the game imports `d3d11.dll`, loads the D3D12 role beside it first (when that file is this
+  recorder): a game that delay-loads `d3d12.dll` can make its device through the interposer before the D3D12 role would load.
+  `selftest slcreate`.
 - **Frame times** (`scsfix_frames.bin`, read by `FrameLog`): at the first device the recorder takes a factory from
   the process's `dxgi.dll` and hooks its `CreateSwapChain*` slots, then `Present` / `Present1` of every swap chain it
   creates, keeping the original per vtable (a wrapper's swap chain and the real one differ). A swap chain whose vtable lies outside

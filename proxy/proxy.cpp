@@ -2267,6 +2267,7 @@ static PFN_Cs b_cs;
 static PFN_Rs b_rs;
 static PFN_Stream b_stream;
 static thread_local bool t_below;  // the runtime may route one create through another
+static thread_local bool t_in_create;  // inside Proxy_D3D12CreateDevice: a hooked system function below it isn't counted twice
 static uint64_t g_changed;
 
 template <class F> static HRESULT below(Writer& w, void** pp, F&& call) {
@@ -2682,7 +2683,55 @@ extern "C" HRESULT WINAPI Proxy_D3D12CreateDevice(IUnknown* adapter, D3D_FEATURE
         if (SUCCEEDED(dhr)) dbg->EnableDebugLayer(), dbg->Release();
         logf("d3d12 debug: %s (hr=0x%08x)", SUCCEEDED(dhr) ? "debug layer enabled" : "debug layer unavailable: install the Graphics Tools optional feature", (unsigned)dhr);
     });
-    return device_created(real_CreateDevice(adapter, fl, riid, pp), adapter, fl, pp);
+    t_in_create = true;   // the system function may be hooked below (hook_system_create): this call is counted here
+    HRESULT hr = real_CreateDevice(adapter, fl, riid, pp);
+    t_in_create = false;
+    return device_created(hr, adapter, fl, pp);
+}
+
+// Streamline's interposer (sl.interposer.dll beside the exe) exports D3D12CreateDevice, and calls the system d3d12.dll's by the
+// system folder's path: a game that makes its device through it (Dead Space) never reaches this dll's export, so nothing is
+// recorded, though this dll is loaded. The system function is hooked at its entry instead (the same hook as nvapi's), so every
+// device made in the process reaches device_created, whoever asks. Not with a mod chained (next=): the mod's device is the game's.
+static bool file_has(const std::wstring& path, const char* needle) {
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER size;
+    std::string b;
+    if (GetFileSizeEx(h, &size) && size.QuadPart > 0 && size.QuadPart < (64 << 20)) {
+        b.resize((size_t)size.QuadPart);
+        DWORD n = 0;
+        if (!ReadFile(h, b.data(), (DWORD)b.size(), &n, nullptr)) n = 0;
+        b.resize(n);
+    }
+    CloseHandle(h);
+    return b.find(needle) != std::string::npos;
+}
+static PFN_CreateDevice o_sys_create;
+static HRESULT WINAPI hk_sys_create(IUnknown* adapter, D3D_FEATURE_LEVEL fl, REFIID riid, void** pp) {
+    HRESULT hr = o_sys_create(adapter, fl, riid, pp);
+    return t_in_create ? hr : device_created(hr, adapter, fl, pp);
+}
+static bool streamline_here() {
+    return GetModuleHandleW(L"sl.interposer.dll") || GetFileAttributesW((g_dir + L"sl.interposer.dll").c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+static void hook_system_create() {
+    auto target = g_real ? (void*)GetProcAddress(g_real, "D3D12CreateDevice") : nullptr;
+    if (!target) return;
+    pin_self();
+    if (hook_fn(target, (void*)hk_sys_create, (void**)&o_sys_create))
+        logf("streamline: sl.interposer.dll is here and calls the system D3D12CreateDevice by path: it is hooked too");
+    else
+        logf("streamline: sl.interposer.dll is here, but the system D3D12CreateDevice can't be hooked (its first instructions aren't ones that can be moved): a device made through it isn't recorded");
+}
+// The D3D11 role loads at start where the game imports d3d11.dll, but a game that imports d3d12.dll late (a delay-load) can make
+// its device through the interposer before that: with Streamline here the D3D12 role (this binary under its other name, beside
+// it) is loaded now, so its hook is in before the device. Only when that file is this recorder (a mod's d3d12.dll is never loaded).
+static void load_d3d12_role() {
+    const std::wstring other = g_dir + L"d3d12.dll";
+    if (GetModuleHandleW(other.c_str())) return;
+    if (!file_has(other, "SCSFix_StartWarm")) return;
+    if (!LoadLibraryW(other.c_str())) logf("streamline: the D3D12 role (%ls) didn't load", other.c_str());
 }
 
 // A device from ID3D12DeviceFactory::CreateDevice (D3D12GetInterface: CLSID_D3D12DeviceFactory, or
@@ -3088,5 +3137,6 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID reserved) {
     g_next = mod;
     if (mod) logf("next: %ls (the device and every export it has come from it)", next);
     else if (next_why) logf("next: %ls %s: the system d3d12.dll is used without it", next, next_why);
+    if (!g_warm && !mod && streamline_here()) g_is11 ? load_d3d12_role() : hook_system_create();
     return TRUE;
 }

@@ -27,6 +27,9 @@ All notable changes to the SCSKiller app and command line. The format follows
 
 ### Fixed (SCSFix, the fork; from the original's open issues, none yet tried in the affected games)
 
+- Recording recorded nothing in a game that makes its DirectX 12 device through Streamline's interposer (Dead Space): the interposer
+  calls the system `d3d12.dll` by path, around the recorder. The recorder now hooks that function when `sl.interposer.dll` is beside
+  the exe, and a D3D11-role recorder loads the D3D12 one early. `selftest slcreate` covers it; not yet seen in Dead Space itself.
 - The recorder crashed games whose swap chain comes from a frame-generation layer (FSR 3, Streamline): a vtable outside `dxgi.dll`
   is no longer patched (issue 22). It records from the exe's folder when REFramework loads it from `_storage_` (issue 2).
   Both are covered by `selftest framegen` and `selftest dirrewrite`.

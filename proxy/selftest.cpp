@@ -3574,6 +3574,59 @@ static int dirrewrite_parent(const std::wstring& self, const std::wstring& dir) 
     return 0;
 }
 
+// `selftest slcreate`: Streamline's interposer exports D3D12CreateDevice and calls the system d3d12.dll's by the system folder's
+// path, so the recorder's own export never sees the device (Dead Space). With sl.interposer.dll beside the exe the recorder hooks
+// the system function: the "game" loads the recorder as d3d12.dll (a late delay-load) or as d3d11.dll (imported at start, which
+// loads the D3D12 role beside it), then makes its device through the system function. Without the interposer file it records nothing.
+static int slcreate_child(const wchar_t* proxy) {
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
+    HMODULE m = LoadLibraryW(proxy);
+    CHECK(m);
+    HMODULE sys = load_system(L"d3d12.dll");
+    auto create = (decltype(&D3D12CreateDevice))(sys ? GetProcAddress(sys, "D3D12CreateDevice") : nullptr);
+    IDXGIFactory4* f = nullptr;
+    IDXGIAdapter* warp = nullptr;
+    CHECK(create && SUCCEEDED(CreateDXGIFactory2(0, IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
+    ID3D12Device* dev = nullptr;
+    CHECK(SUCCEEDED(create(warp, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev))));
+    return 0;
+}
+static std::string slcreate_log(const std::wstring& t) {
+    std::string log;
+    if (FILE* lf = _wfopen((t + L"scsfix.log").c_str(), L"rb")) {
+        for (char b[4096]; fgets(b, sizeof b, lf);) log += b;
+        fclose(lf);
+    }
+    return log;
+}
+static int slcreate_parent(const std::wstring& self, const std::wstring& dir) {
+    namespace fs = std::filesystem;
+    for (int mode = 0; mode < 3; ++mode) {   // 0: the D3D12 role, 1: the D3D11 role first, 2: no interposer file (nothing recorded)
+        const std::wstring t = dir + L"slcreate" + std::to_wstring(mode) + L"\\";
+        std::error_code ec;
+        fs::remove_all(t, ec);
+        fs::create_directories(t);
+        fs::copy_file(self, t + L"game.exe");
+        fs::copy_file(dir + L"d3d12.dll", t + L"d3d12.dll");
+        fs::copy_file(dir + L"d3d11.dll", t + L"d3d11.dll");
+        if (mode != 2) {
+            FILE* sl = _wfopen((t + L"sl.interposer.dll").c_str(), L"wb");   // only its presence is looked for
+            CHECK(sl);
+            fputs("stub", sl), fclose(sl);
+        }
+        CHECK(run_wait(L"\"" + t + L"game.exe\" slcreatechild \"" + t + (mode == 1 ? L"d3d11.dll" : L"d3d12.dll") + L"\"", t) == 0);
+        const std::string log = slcreate_log(t);
+        if (mode == 2) {
+            CHECK(log.find("hook: device") == std::string::npos && log.find("streamline:") == std::string::npos);   // the control: the hook is the interposer's
+            continue;
+        }
+        CHECK(log.find("streamline: sl.interposer.dll is here") != std::string::npos);
+        CHECK(log.find("hook: device") != std::string::npos);   // the device the interposer made reached the recorder
+    }
+    printf("PASS slcreate: a device made through the system function by path was recorded; without the interposer it isn't\n");
+    return 0;
+}
+
 // The app's attestation for this exe, as ScsFix.WriteAttestation writes it: scsfix.armed here (its nonce kept when it
 // has one, so copies of this exe running from the same folder share it) and the ledger entry
 // %LOCALAPPDATA%\SCSFix\armed\<SHA-1 of the exe's path, UTF-16LE, A-Z lowered>, removed when this process exits.
@@ -3620,6 +3673,8 @@ int wmain(int argc, wchar_t** argv) {
     if (argc > 1 && !wcscmp(argv[1], L"d3d11rec")) return d3d11rec_parent(a, dir);
     if (argc > 1 && !wcscmp(argv[1], L"d3d11recchild")) return d3d11rec_child(dir);
     if (argc > 1 && !wcscmp(argv[1], L"framegen")) return framegen_rows(dir);
+    if (argc > 1 && !wcscmp(argv[1], L"slcreate")) return slcreate_parent(a, dir);
+    if (argc > 2 && !wcscmp(argv[1], L"slcreatechild")) return slcreate_child(argv[2]);
     if (argc > 1 && !wcscmp(argv[1], L"dirrewrite")) return dirrewrite_parent(a, dir);
     if (argc > 2 && !wcscmp(argv[1], L"dirrewritechild")) return dirrewrite_child(dir, argv[2]);
     if (argc > 1 && !wcscmp(argv[1], L"layoutrules")) return layout_rules();
