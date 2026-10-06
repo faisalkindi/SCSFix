@@ -3040,6 +3040,8 @@ static int dxcfill(long long count, int unroll, unsigned seed, int hold) {
 // more frames, through both overlays. Then a compute PSO on this thread and one on another (the csv's presents column: 1,
 // then 0). Prints "overlay <calls>", "late <calls>" (the second overlay's) and "frames <n>" (scsfix_frames.bin's frames
 // after its last launch record, -1 = no file).
+// Frame times are off unless scsfix.ini says so: the tests that present turn them on in the folder the proxy runs from.
+static void frames_on(const std::wstring& dir) { WritePrivateProfileStringW(L"scsfix", L"frames", L"1", (dir + L"scsfix.ini").c_str()); }
 static std::atomic<int> g_overlay, g_late;
 static void* g_ov_present;
 static void* g_ov_present1;
@@ -3072,6 +3074,7 @@ static HRESULT STDMETHODCALLTYPE ov_present1(IDXGISwapChain1* sc, UINT sync, UIN
 }
 
 static int frames_rows(const std::wstring& dir, int n) {
+    frames_on(dir);
     SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     wchar_t sys[MAX_PATH];
@@ -3153,6 +3156,7 @@ static int frames_rows(const std::wstring& dir, int n) {
 // patched vtable in every other slot), not fail the present. Dragon's Dogma 2 under REFramework failed every Present with
 // DXGI_ERROR_INVALID_CALL, and then crashed, when the hook knew only the vtables it had patched itself.
 static int vtcopy_rows(const std::wstring& dir) {
+    frames_on(dir);
     SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     CHECK(m);
@@ -3223,6 +3227,7 @@ static HRESULT STDMETHODCALLTYPE re_present1(IDXGISwapChain1* sc, UINT sync, UIN
     return ((HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*))g_re_present1)(sc, sync, flags, p);
 }
 static int reentry_rows(const std::wstring& dir) {
+    frames_on(dir);
     SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     HMODULE real = load_system(L"d3d12.dll");
@@ -3263,6 +3268,7 @@ static int reentry_rows(const std::wstring& dir) {
 // the proxy's first writes of it fail, then one present after it is let go. Prints "drift_us <n>": how far that frame's
 // time in the file is from its QueryPerformanceCounter, from the file's launch record (frames lost, never time).
 static int frames_held(const std::wstring& dir) {
+    frames_on(dir);
     SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     CHECK(m);
@@ -3607,6 +3613,7 @@ static HRESULT STDMETHODCALLTYPE fg_create(IDXGIFactory2* f, IUnknown* dev, HWND
 }
 
 static int framegen_rows(const std::wstring& dir) {
+    frames_on(dir);
     SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     CHECK(m);
@@ -3671,6 +3678,7 @@ static int dirrewrite_parent(const std::wstring& self, const std::wstring& dir) 
     fs::copy_file(self, t + L"game.exe");
     fs::copy_file(dir + L"d3d12.dll", t + L"d3d12.dll");
     fs::copy_file(dir + L"d3d12.dll", t + L"sub\\d3d12.dll");
+    frames_on(t);   // so that the redirect is what keeps the frame hooks off
     CHECK(run_wait(L"\"" + t + L"game.exe\" dirrewritechild \"" + t + L"sub\\d3d12.dll\"", t) == 0);
     std::string log;
     {
@@ -3734,6 +3742,7 @@ static int slcreate_parent(const std::wstring& self, const std::wstring& dir) {
         }
         CHECK(log.find("streamline: sl.interposer.dll is here") != std::string::npos);
         CHECK(log.find("hook: device") != std::string::npos);   // the device the interposer made reached the recorder
+        CHECK(log.find("frames: off (scsfix.ini frames=1 turns frame times on)") != std::string::npos);   // and the game's Present is left alone by default
     }
     printf("PASS slcreate: a device made through the system function by path was recorded; without the interposer it isn't\n");
     return 0;

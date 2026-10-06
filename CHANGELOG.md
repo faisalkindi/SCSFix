@@ -30,6 +30,9 @@ All notable changes to the SCSKiller app and command line. The format follows
 - Recording recorded nothing in a game that makes its DirectX 12 device through Streamline's interposer (Dead Space): the interposer
   calls the system `d3d12.dll` by path, around the recorder. The recorder now hooks that function when `sl.interposer.dll` is beside
   the exe, and a D3D11-role recorder loads the D3D12 one early. `selftest slcreate` covers it; not yet seen in Dead Space itself.
+- Frame times are opt-in (`frames=1` in the game's `scsfix.ini`). The recorder's hooks on the game's Present, which the Steam overlay,
+  FramePacer and REFramework hook as well, were in each of four Dragon's Dogma 2 crashes in one evening; with them off the
+  recorder isn't on that path at all. The game page shows no frame graph until they are turned on.
 - Dragon's Dogma 2 crashed within seconds of starting, twice (a stack overflow), with the recorder, the Steam overlay and FramePacer
   (a frame limiter that injects into the game) all hooking Present: the overlay's Present1 hook called Present through the vtable
   while dxgi's Present was calling Present1, round and round through the recorder's hook. A Present that reaches the recorder's

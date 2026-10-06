@@ -815,8 +815,9 @@ The recorder is `proxy/`'s `d3d12.dll`, placed next to the game's exe with a `sc
   the low 28 bits the microseconds since the previous record; top 4 bits 15 = no frame for the low 28 bits'
   milliseconds. The file holds the last launch that presented, replaced at its first frame (3 hours at 300 FPS is
   13 MB; a launch stops writing at 32 MB). It isn't part of the recording: not in the recording limit or the recording's
-  size, never shared; Clear recording and removing the recorder delete it with the csv. `frames=0` in `scsfix.ini` turns it off (diagnostics
-  only). The game page's last session (`GameState.LastFrames`) reads the last launch with the creates csv of the
+  size, never shared; Clear recording and removing the recorder delete it with the csv. The frame hooks are **off by default**: `frames=1` in `scsfix.ini` turns them on (the hooks sit on the
+  game's Present path, where overlays, frame limiters and mods hook too; they crashed Dragon's Dogma 2 four times). The game
+  page's last session (`GameState.LastFrames`) reads the last launch with the creates csv of the
   same launch (the `#session` with the same stamp; from an older recorder, without `#clock`, the only one within 10 s, else none). A frame
   is **cold-filled** when its overlapping compiles of 100 ms or more (not a library load or a RayQuery PSO at the
   floor) sum to half its length or more: a compiled run's load creates stay under
@@ -1003,8 +1004,8 @@ Written by the recorder next to the game's exe. Rows are `t_ms,kind,known,tuple_
   held when the game started has `known` 1; the db gets the record of every other key, until it reaches `max_db_bytes`;
 - `proxy_ms`: the recorder's own time outside `ms`;
 - `tid`: the creating thread's id; `presents` 1 when that thread had presented a frame before the create (a create there
-  holds up the frame), 0 otherwise, including a render thread's creates before its first frame and every create with
-  `frames=0`.
+  holds up the frame), 0 otherwise, including a render thread's creates before its first frame and every create without
+  the frame hooks (the default).
 
 Readers ignore lines starting with `#` and accept extra fields. Markers give real play time:
 

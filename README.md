@@ -68,8 +68,10 @@ Measured with SCSFix's pipeline recorder. Your numbers will vary by game, GPU an
 - **Games SCSKiller can't read** (encrypted, packed, a package format it doesn't know) aren't a dead end here: they
   go to Needs recording, and the recorder, for DirectX 12 and on NVIDIA also DirectX 11 (it goes in as `d3d11.dll`),
   captures what the game creates while you play. Games with anti-cheat still can't be recorded.
-- **Frame times per session.** With the recorder on, a game's page graphs your last session and tells the shader
-  stutters apart from other hitches. Frame times stay on your PC.
+- **Frame times per session (opt-in).** With `frames=1` in the game's `scsfix.ini` (next to the exe, where the recorder
+  is), the game's page graphs your last session and tells the shader stutters apart from other hitches. Frame times stay on
+  your PC. It is off by default: it hooks the game's Present, where the Steam overlay, frame limiters (FramePacer) and
+  mods (REFramework) hook too, and those hooks have crashed Dragon's Dogma 2.
 - **Play button** in the Library and on a game's page: starts the game through its store.
 - **Community shader hash database** for Patreon supporters: other players' recordings, so your games are covered
   without recording them first. Sharing your own is opt-in and anonymous: shader hashes only.

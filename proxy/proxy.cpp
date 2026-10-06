@@ -5,7 +5,7 @@
 // Config:  scsfix.ini [scsfix] mode=record|warm threads=N next=<a mod's d3d12.dll, renamed>  (next to the dll), or env
 //          SCSFIX_MODE / SCSFIX_THREADS (Steam launch options: SCSFIX_MODE=warm %command%).
 //          max_db_bytes=N (ini only; missing = no limit): once scsfix.db has N bytes, no record is appended.
-//          frames=0 (ini only): no frame times.
+//          frames=1 (ini only): measure frame times (off by default: it hooks the game's Present, where overlays and frame limiters hook too).
 // Output:  scsfix.db (append-only), scsfix.log, scsfix_creates.csv (t_ms,kind,known,tuple_known,ms,key,proxy_ms,tid,presents),
 //          scsfix_frames.bin (frame_hooks).
 // Input:   scsfix.keys (optional, record mode): what the app already imported, never recorded again, and the shaders
@@ -2607,13 +2607,15 @@ static void frame_writer() {
 static bool g_redirected;  // loaded from another folder than the exe's (REFramework's storage): see DllMain
 static void frame_hooks() {
     if (g_warm) return;
-    // REFramework (which loads the game folder's DLLs from its storage folder) hooks the same swap chain slots, over ours and after
-    // copying vtables: Dragon's Dogma 2 failed every Present under it with this recorder's frame hook on, and crashed. Frame times
-    // are the one part of the recorder that sits on the game's own present path, so there they aren't measured.
-    if (g_redirected) return logf("frames: off: this dll was loaded from another folder than the exe's (REFramework), whose hooks meet ours on the swap chain");
+    // Frame times are the one part of the recorder that sits on the game's own Present path, where the Steam overlay, FramePacer,
+    // REFramework and the like hook as well, and the hooks of programs that call each other have crashed Dragon's Dogma 2 four
+    // times (a failed Present, then Present loops that overflowed the stack): so they are measured only when scsfix.ini says frames=1.
     wchar_t on[8];  // not cfg(): a staged warm child may inherit SCSFIX_* variables
-    GetPrivateProfileStringW(L"scsfix", L"frames", L"1", on, 8, (g_dir + L"scsfix.ini").c_str());
-    if (!wcscmp(on, L"0")) return logf("frames: off (scsfix.ini frames=0)");
+    GetPrivateProfileStringW(L"scsfix", L"frames", L"0", on, 8, (g_dir + L"scsfix.ini").c_str());
+    if (wcscmp(on, L"1")) return logf("frames: off (scsfix.ini frames=1 turns frame times on)");
+    // REFramework (which loads the game folder's DLLs from its storage folder) hooks the same swap chain slots, over ours and after
+    // copying vtables: not even then.
+    if (g_redirected) return logf("frames: off: this dll was loaded from another folder than the exe's (REFramework), whose hooks meet ours on the swap chain");
     // the dxgi.dll the game uses: a mod's in the game folder, if one is loaded by that name
     HMODULE m = GetModuleHandleW(L"dxgi.dll");
     if (!m) m = LoadLibraryW(L"dxgi.dll");
