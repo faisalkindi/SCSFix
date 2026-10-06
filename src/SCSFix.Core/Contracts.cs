@@ -24,8 +24,9 @@ public sealed record EngineInfo(
     string GraphicsApi,     // "D3D12", "D3D11", "Vulkan…" or "D3D11 or D3D12" (see Planner.Check)
     bool Encrypted,         // shader content unreadable without a key
     string? Unsupported,    // why it can't be indexed (e.g. "shaders stored inside materials"); null = indexable
-    bool NoRtPipelines = false,   // the game never builds a ray tracing state object (Unreal: r.RayTracing.AllowPipeline=0): its DXIL libraries go unused
-    bool RecordOnly = false);     // its files can't be read (Unsupported says why), but a recording of a play session can still give the plan: set by EngineReaders
+    bool NoRtPipelines = false,    // the game never builds a ray tracing state object (Unreal: r.RayTracing or r.RayTracing.AllowPipeline=0): its DXIL libraries go unused
+    bool NoRayTracing = false,     // ray tracing is off altogether (Unreal: r.RayTracing=0), inline too; implies NoRtPipelines
+    bool RecordOnly = false);      // its files can't be read (Unsupported says why), but a recording of a play session can still give the plan: set by EngineReaders
 
 /// <summary>Shader stage, numbered like D3D12_PIPELINE_STATE_SUBOBJECT_TYPE (the proxy's db uses the same numbers).</summary>
 public enum Stage { Vertex = 1, Pixel = 2, Domain = 3, Hull = 4, Geometry = 5, Compute = 6, Amplification = 24, Mesh = 25, Library = 100 }
@@ -261,7 +262,7 @@ public sealed record GameState(
     double? PsoPerSecond = null,   // the game's last complete warm onto a cold cache (ScsFix.ColdWarm); null = none measured
     FrameReport? LastFrames = null,    // the last launch's frame times (FrameLog); null = none measured
     string? ShaderMod = null,          // a ReShade add-on that changes the game's pipelines (Games.ReShade.Detect); null = none
-    bool ShaderModBlocks = false,      // ...adds to every root signature, with ReShade outside the exe's folder: never compiled, recorded or shared
+    bool ShaderModBlocks = false,      // ...adds to every root signature, in a layer a copy can't reproduce (ReShadeInstall.Block): never compiled, recorded or shared
     bool ShaderModLayer = false,       // ...compiles through a copy of the layer (ScsFix.LayerFor)
     bool ShaderModAsD3D12 = false,     // ...with ReShade installed as d3d12.dll: the recorder records under it only when chained
     bool RootUnconfirmed = false,      // a game the user added whose folder they haven't confirmed: never recorded (ScsFix.SkipManual)
@@ -330,7 +331,10 @@ public sealed record Settings(int Threads, WarmPriority Priority, DriverUpdateMo
     int RecordingLimitMB = 256,     // per game: the recorder's db plus SCSFix's copy of it; 0 = unlimited
     bool NotifyNewShaders = true,   // a notification when compiled games have new pipelines to compile (NewShaders)
     bool ActiveCheck = false,       // FORK: off, and never wired (App.xaml.cs): the anonymous daily check that counts active installs is SCSKiller's server's
-    string? GpuNoticeDismissed = null);   // the GPU name whose "doesn't compile on this GPU" notice was closed (Format.GpuNotice)
+    string? GpuNoticeDismissed = null,   // the GPU name whose "doesn't compile on this GPU" notice was closed (Format.GpuNotice)
+    bool InstallUpdatesAutomatically = false,   // FORK: nothing updates itself (Updater.SelfUpdateDisabled); upstream's default is on
+    bool ScanAtStart = true,   // a scan the user didn't ask for reads every game again where it changed; off = the last list (ScsFix.Listed)
+    bool CloseQuits = false);  // the window's close button quits like the tray's Quit (WindowClose); off = it hides to the notification area
 
 public enum QueueStage { Waiting, Indexing, Planning, Materializing, Warming, Paused, Done, Failed, Stopped }
 public sealed record QueueItem(string GameId, QueueStage Stage, WarmProgress? Progress, string? Error,

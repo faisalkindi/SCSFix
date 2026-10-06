@@ -40,13 +40,21 @@ public sealed partial class MainWindow : Window
         Nav.SelectedItem = LibraryItem;
         Updater.Changed += () => DispatcherQueue.TryEnqueue(ShowUpdate);
         ShowUpdate();
-        // The close button (and Alt+F4) hides to the notification area; the tray icon's Quit really quits.
-        AppWindow.Closing += (_, e) =>
+        AppWindow.Closing += (w, e) =>
         {
             SavePlacement();
-            if (!App.HidesOnClose) return;
-            e.Cancel = true;
-            App.HideToTray();
+            switch (WindowClose.Of(App.Core.Settings, App.Quitting, App.HidesOnClose))
+            {
+                case CloseAction.Quit:
+                    e.Cancel = true;   // QuitAsync exits once the compile and the update handover are done
+                    w.Hide();
+                    _ = App.QuitAsync();
+                    break;
+                case CloseAction.Hide:
+                    e.Cancel = true;
+                    App.HideToTray();
+                    break;
+            }
         };
         AppWindow.Changed += (w, e) =>
         {
@@ -77,7 +85,8 @@ public sealed partial class MainWindow : Window
         var ready = Updater.Ready;   // once: a check may replace it meanwhile
         UpdateButton.Visibility = ready != null ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(UpdateButton, Updater.Problem ?? $"SCSFix {ready} is ready. Restarting stops a running compile safely " +
-            "(the driver saves its cache first) and continues it afterwards. Otherwise it installs when you quit SCSFix.");
+            "(the driver saves its cache first) and continues it afterwards." +
+            (App.Core.Settings.InstallUpdatesAutomatically ? " Otherwise it installs the next time SCSFix starts or quits." : ""));
     }
 
     async void OnRestartToUpdate(object _, RoutedEventArgs __)
@@ -295,7 +304,7 @@ public sealed partial class MainWindow : Window
             Navigate(typeof(LibraryPage));
             var library = (LibraryPage)ContentFrame.Content;
             // library-groups: Palworld's icon (a real exe) after the detail pages showed it at 56 px: it must not come back empty
-            foreach (var (name, search) in new[] { ("library-back", ""), ("library-search", "life"), ("library-nomatch", "zelda"), ("library-groups", "") })
+            foreach (var (name, search) in new[] { ("library-back", ""), ("library-search", "life"), ("library-nomatch", "zelda"), ("library-rt", "darwin"), ("library-groups", "") })
             {
                 library.SearchText = search;
                 await Task.Delay(400);
