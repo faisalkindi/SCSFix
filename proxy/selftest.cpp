@@ -3191,6 +3191,74 @@ static int vtcopy_rows(const std::wstring& dir) {
     return 0;
 }
 
+// `selftest reentry`: hooks of programs that call each other. An overlay hooked Present and Present1 before the proxy did; its
+// Present calls Present1 through the vtable (as dxgi's own does) and its Present1 calls Present through the vtable again, a
+// loop that only stops when the hooks do (the Steam overlay with FramePacer in Dragon's Dogma 2: the stack overflowed in under
+// 10 seconds, twice). The proxy's Present hook, entered again on the same thread for the same swap chain while still inside its
+// own, cuts the loop: the nested call returns S_OK, the rest unwinds. Here the loop is capped so a missing cut shows as a count.
+static std::atomic<int> g_re_calls;
+static thread_local int t_re_depth;
+static void* g_re_present;
+static void* g_re_present1;
+static HRESULT STDMETHODCALLTYPE re_present(IDXGISwapChain* sc, UINT sync, UINT flags) {
+    ++g_re_calls;
+    HRESULT hr = ((HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT))g_re_present)(sc, sync, flags);
+    IDXGISwapChain1* sc1;
+    if (SUCCEEDED(hr) && t_re_depth < 20 && SUCCEEDED(sc->QueryInterface(IID_PPV_ARGS(&sc1)))) {   // dxgi's Present, through the vtable
+        DXGI_PRESENT_PARAMETERS p = {};
+        ++t_re_depth;
+        sc1->Present1(sync, flags, &p);
+        --t_re_depth;
+        sc1->Release();
+    }
+    return hr;
+}
+static HRESULT STDMETHODCALLTYPE re_present1(IDXGISwapChain1* sc, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* p) {
+    ++g_re_calls;
+    if (t_re_depth < 20) {   // the overlay's Present1 hook calls Present
+        ++t_re_depth;
+        sc->Present(sync, flags);
+        --t_re_depth;
+    }
+    return ((HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*))g_re_present1)(sc, sync, flags, p);
+}
+static int reentry_rows(const std::wstring& dir) {
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
+    HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
+    HMODULE real = load_system(L"d3d12.dll");
+    CHECK(m && real);
+    auto proxy_create = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
+    auto real_create = (decltype(&D3D12CreateDevice))GetProcAddress(real, "D3D12CreateDevice");
+    IDXGIFactory4* f = nullptr;
+    IDXGIAdapter* warp = nullptr;
+    CHECK(proxy_create && real_create && SUCCEEDED(CreateDXGIFactory2(0, IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
+    auto chain = [&](ID3D12Device* dev, IDXGISwapChain1** sc) {
+        HWND wnd = CreateWindowExW(0, L"STATIC", L"scsfix reentry", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, nullptr, nullptr, nullptr, nullptr);
+        D3D12_COMMAND_QUEUE_DESC qd = {};
+        ID3D12CommandQueue* q = nullptr;
+        DXGI_SWAP_CHAIN_DESC1 d = {64, 64, DXGI_FORMAT_R8G8B8A8_UNORM, FALSE, {1, 0}, DXGI_USAGE_RENDER_TARGET_OUTPUT, 2};
+        d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        return wnd && SUCCEEDED(dev->CreateCommandQueue(&qd, IID_PPV_ARGS(&q))) && SUCCEEDED(f->CreateSwapChainForHwnd(q, wnd, &d, nullptr, nullptr, sc));
+    };
+    ID3D12Device *dev0 = nullptr, *dev = nullptr;
+    IDXGISwapChain1 *sc0 = nullptr, *sc = nullptr;
+    CHECK(SUCCEEDED(real_create(warp, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev0))) && chain(dev0, &sc0));
+    void** vt = *(void***)sc0;
+    DWORD old;
+    CHECK(VirtualProtect(&vt[8], 15 * sizeof(void*), PAGE_READWRITE, &old));
+    g_re_present = vt[8], g_re_present1 = vt[22];
+    vt[8] = (void*)re_present, vt[22] = (void*)re_present1;
+    VirtualProtect(&vt[8], 15 * sizeof(void*), old, &old);
+    sc0->Release();
+    CHECK(SUCCEEDED(proxy_create(warp, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev))) && chain(dev, &sc));
+    const int n = 5;
+    for (int i = 0; i < n; ++i) CHECK(SUCCEEDED(sc->Present(0, 0)));
+    printf("overlay calls %d for %d presents\n", g_re_calls.load(), n);
+    CHECK(g_re_calls == 2 * n);   // Present, then its Present1: the nested Present is cut, not followed
+    printf("PASS reentry: a Present that re-entered the hook on its own thread and swap chain was cut\n");
+    return 0;
+}
+
 // `selftest framesheld`: presents on WARP through the proxy while scsfix_frames.bin is held open by another handle, so
 // the proxy's first writes of it fail, then one present after it is let go. Prints "drift_us <n>": how far that frame's
 // time in the file is from its QueryPerformanceCounter, from the file's launch record (frames lost, never time).
@@ -3718,6 +3786,7 @@ int wmain(int argc, wchar_t** argv) {
     if (argc > 1 && !wcscmp(argv[1], L"d3d11recchild")) return d3d11rec_child(dir);
     if (argc > 1 && !wcscmp(argv[1], L"framegen")) return framegen_rows(dir);
     if (argc > 1 && !wcscmp(argv[1], L"vtcopy")) return vtcopy_rows(dir);
+    if (argc > 1 && !wcscmp(argv[1], L"reentry")) return reentry_rows(dir);
     if (argc > 1 && !wcscmp(argv[1], L"slcreate")) return slcreate_parent(a, dir);
     if (argc > 2 && !wcscmp(argv[1], L"slcreatechild")) return slcreate_child(argv[2]);
     if (argc > 1 && !wcscmp(argv[1], L"dirrewrite")) return dirrewrite_parent(a, dir);

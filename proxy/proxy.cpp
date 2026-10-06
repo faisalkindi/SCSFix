@@ -2443,12 +2443,40 @@ template <class F> static HRESULT timed_present(void* sc, UINT flags, F&& call) 
     for (int64_t m = g_hook_max; own > m && !g_hook_max.compare_exchange_weak(m, own);) {}
     return hr;
 }
+// Hooks of programs that call each other: the Steam overlay's Present1 hook calling Present through the vtable while dxgi's
+// Present is calling Present1, with FramePacer's and this recorder's hooks between, is a loop that only ends when the stack does
+// (Dragon's Dogma 2: a stack overflow within 10 seconds of the start, twice). A Present that reaches a hook again on a thread
+// still inside the hook for the same swap chain and slot is never the game's: it returns S_OK and the loop unwinds. Present
+// calling Present1 is another slot, and a wrapper's swap chain is another object: both pass.
+static thread_local uintptr_t t_in_present[16];
+static thread_local int t_in_present_n;
+struct PresentScope {
+    bool entered;
+    PresentScope(void* sc, bool one) : entered(false) {
+        uintptr_t key = (uintptr_t)sc | (one ? 1 : 0);
+        for (int i = 0; i < t_in_present_n; ++i)
+            if (t_in_present[i] == key) return;
+        if (t_in_present_n == (int)std::size(t_in_present)) return;
+        t_in_present[t_in_present_n++] = key;
+        entered = true;
+    }
+    ~PresentScope() { if (entered) --t_in_present_n; }
+};
+static HRESULT cut_present_loop(bool one) {
+    static std::atomic<int> cut;
+    if (++cut == 1) logf("frames: a %s reached the hook again while this thread was still inside it for the same swap chain (the hooks of other programs calling each other): the nested call is skipped", one ? "Present1" : "Present");
+    return S_OK;
+}
 static HRESULT STDMETHODCALLTYPE hk_present(IDXGISwapChain* sc, UINT sync, UINT flags) {
+    PresentScope scope(sc, false);
+    if (!scope.entered) return cut_present_loop(false);
     auto o = (PFN_Present)sc_orig(sc, &ScVt::present);
-    if (!o) return DXGI_ERROR_INVALID_CALL;   // a vtable we hold no original for: never reached by a patch (sc_patch), only by a copy of one
+    if (!o) return DXGI_ERROR_INVALID_CALL;   // no patched vtable at all: never reached (sc_orig falls back to the closest one)
     return timed_present(sc, flags, [&] { return o(sc, sync, flags); });
 }
 static HRESULT STDMETHODCALLTYPE hk_present1(IDXGISwapChain1* sc, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* p) {
+    PresentScope scope(sc, true);
+    if (!scope.entered) return cut_present_loop(true);
     auto o = (PFN_Present1)sc_orig(sc, &ScVt::present1);
     if (!o) return DXGI_ERROR_INVALID_CALL;
     return timed_present(sc, flags, [&] { return o(sc, sync, flags, p); });
