@@ -10,6 +10,9 @@ All notable changes to the SCSKiller app and command line. The format follows
 - Renamed to SCSFix: its own data folder (`%LOCALAPPDATA%\SCSFix`), recorder file names (`scsfix.*`), exe, logo and
   About page. It installs beside SCSKiller. `tools/rebrand.py` redoes the rename after merging upstream.
 - No self-update: the update feed and its keys are SCSKiller's, so the fork never checks, downloads or applies one.
+- Merged upstream SCSKiller 1.2.3 (its section below). Where it fixed what the fork had fixed (REFramework's `_storage_` path, frame generation's
+  swap chain, the Unreal exe pick) its version is the one in; the fork's opt-in frame times, Present re-entry cut, copied-vtable handling,
+  Streamline hook and the rest stay. Its "install updates automatically" and window-close settings are there; nothing updates itself.
 - Games no reader can read (encrypted Unreal, packed archives, a RE Engine package version the reader doesn't know, a Unity
   build with no readable shaders) are no longer Unsupported when a recording can help: they go to Needs recording.
 - Crimson Desert compiles without a recording: SCSFix reads its shaders and root signatures out of its archives (`0017/`,
@@ -45,8 +48,8 @@ All notable changes to the SCSKiller app and command line. The format follows
   measured at all when the recorder is loaded from REFramework's storage folder. `selftest vtcopy` reproduces the failure;
   the game itself isn't tested.
 - The recorder crashed games whose swap chain comes from a frame-generation layer (FSR 3, Streamline): a vtable outside `dxgi.dll`
-  is no longer patched (issue 22). It records from the exe's folder when REFramework loads it from `_storage_` (issue 2).
-  Both are covered by `selftest framegen` and `selftest dirrewrite`.
+  is no longer patched (issue 22; upstream 1.2.3 turns the frame hooks off for FSR 3 / XeSS frame generation too, merged below).
+  REFramework's `_storage_` path (issue 2) is upstream 1.2.3's `own_dir`. `selftest framegen` covers the first.
 - A game with a large helper exe next to it (Returnal's 114 MB online-services installer) is no longer taken for the game
   (issue 26). An Unreal game whose version the files don't give is UE5 when its packages say so, not always UE4 (issue 46).
 - A scan no longer waits for good on one game whose drive doesn't answer: after 5 minutes it goes on, and the game says why

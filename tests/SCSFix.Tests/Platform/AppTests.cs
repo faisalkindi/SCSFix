@@ -3016,7 +3016,7 @@ public partial class AppTests : IDisposable
             Assert.Equal(0, p.ExitCode);
             return o;
         }
-        var on = Run("");
+        var on = Run("frames=1\r\n");   // FORK: frame times are opt-in
         Assert.Contains("overlay 48", on);
         Assert.Contains("late 2", on);
         Assert.Contains("frames 43", on);
@@ -3035,7 +3035,7 @@ public partial class AppTests : IDisposable
         Assert.True(double.Parse(lines[^1].Split(',')[2], System.Globalization.CultureInfo.InvariantCulture)
                     >= double.Parse(lines[session + 1].Split(',')[1], System.Globalization.CultureInfo.InvariantCulture));
         File.Delete(Path.Combine(dir, "scsfix_frames.bin"));
-        Assert.Contains("frames -1", Run("frames=0\r\n"));
+        Assert.Contains("frames -1", Run(""));   // FORK: off unless the ini says frames=1
     }
 
     /// <summary>Frame generation's swap chain (`selftest framesfg`): no Present hook. A swap chain made on a queue named as

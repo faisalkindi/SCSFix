@@ -834,9 +834,9 @@ image (the kernel's name for it) is the same file, by volume and file id, as `<e
 - **Clear recording** (`IScsFix.ClearRecording`, CLI `record clear <game>`): deletes the recording's files, all or
   none, never while the game runs or compiles; the recorder and its ini stay, and the keys file is rewritten. The next compile
   plans from the game's files.
-- **Loading**: the recorder works from the exe's folder when the game loads it from another (REFramework rewrites the module path of
-  a loaded DLL to its `_storage_` folder, where the ini, ledger lookup and files are not): when the proxy's own folder isn't the
-  exe's and the exe's folder holds a file of the proxy's name, that folder is used, and the log says so. A recorder the game never
+- **Loading**: the recorder works from the exe's folder when the loader reports it from another (REFramework rewrites the module
+  path of a loaded DLL to its `_storage_` folder, where the ini, ledger lookup and files are not): `own_dir` (upstream's) takes the
+  exe's folder when the mapped image really is that folder's file, and the log says so (`dir:`; frame times then stay off). A recorder the game never
   loaded (the exe's last run began after it went in, and none of its files exists) is named on the game's page
   (`ScsFix.NotLoaded`).
 - **Streamline**: its interposer (`sl.interposer.dll`) exports `D3D12CreateDevice` and calls the system `d3d12.dll`'s by the

@@ -7,8 +7,8 @@ namespace SCSFix.Tests.Platform;
 /// <summary>The DirectX 11 recorder: the proxy under its other name, d3d11.dll, in a game none of the readers can read.</summary>
 public partial class AppTests
 {
-    const string Unreadable = "no raw DXBC/DXIL shaders in its files (0.0 GB sampled): shaders are compressed or packed: needs an engine reader";
-    static readonly EngineInfo Packed11 = new("Carved", "-", null, "D3D11", false, Unreadable, RecordOnly: true);
+    const string UnreadableFiles = "no raw DXBC/DXIL shaders in its files (0.0 GB sampled): shaders are compressed or packed: needs an engine reader";
+    static readonly EngineInfo Packed11 = new("Carved", "-", null, "D3D11", false, UnreadableFiles, RecordOnly: true);
 
     string Dll12 => Path.Combine(_exeDir, "d3d12.dll");
     string Dll11 => Path.Combine(_exeDir, ScsFix.Proxy11);

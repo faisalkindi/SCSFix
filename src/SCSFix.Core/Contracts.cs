@@ -332,7 +332,7 @@ public sealed record Settings(int Threads, WarmPriority Priority, DriverUpdateMo
     bool NotifyNewShaders = true,   // a notification when compiled games have new pipelines to compile (NewShaders)
     bool ActiveCheck = false,       // FORK: off, and never wired (App.xaml.cs): the anonymous daily check that counts active installs is SCSKiller's server's
     string? GpuNoticeDismissed = null,   // the GPU name whose "doesn't compile on this GPU" notice was closed (Format.GpuNotice)
-    bool InstallUpdatesAutomatically = false,   // FORK: nothing updates itself (Updater.SelfUpdateDisabled); upstream's default is on
+    bool InstallUpdatesAutomatically = true,   // a downloaded update installs at the next start or quit (AutoInstall); off = only "Restart to update". FORK: nothing is ever downloaded (Updater.SelfUpdateDisabled) and About hides it
     bool ScanAtStart = true,   // a scan the user didn't ask for reads every game again where it changed; off = the last list (ScsFix.Listed)
     bool CloseQuits = false);  // the window's close button quits like the tray's Quit (WindowClose); off = it hides to the notification area
 

@@ -3089,7 +3089,6 @@ static long frames_in(const std::wstring& dir) {
 }
 
 static int frames_rows(const std::wstring& dir, int n) {
-    frames_on(dir);
     SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     wchar_t sys[MAX_PATH];
@@ -3165,6 +3164,7 @@ static int frames_rows(const std::wstring& dir, int n) {
 // hooks Present (slot 8) after the proxy, before the named queue's swap chain; then "slot8 overlay <0|1>" and
 // "slot22 ours <0|1>" for that swap chain's vtable instead of "after".
 static int frames_fg_rows(const std::wstring& dir, const wchar_t* queue, bool overlay) {
+    frames_on(dir);
     SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
     HMODULE m = LoadLibraryW((dir + L"d3d12.dll").c_str());
     auto proxy_create = m ? (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice") : nullptr;
@@ -3746,46 +3746,6 @@ static int framegen_rows(const std::wstring& dir) {
     return 0;
 }
 
-// `selftest dirrewrite`: the proxy reports its module path as another folder than the one it is mapped from (REFramework shows a
-// game-folder DLL under its _storage_ folder): the app's files are beside the exe, so with a file of the proxy's name in the exe's
-// folder that folder is the one. The "game" loads the proxy from a subfolder while the exe's folder holds a copy of it too.
-static int dirrewrite_child(const std::wstring& dir, const wchar_t* proxy) {
-    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
-    HMODULE m = LoadLibraryW(proxy);
-    CHECK(m);
-    auto create = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
-    IDXGIFactory4* f = nullptr;
-    IDXGIAdapter* warp = nullptr;
-    CHECK(create && SUCCEEDED(CreateDXGIFactory2(0, IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
-    ID3D12Device* dev = nullptr;
-    CHECK(SUCCEEDED(create(warp, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev))));
-    return 0;
-}
-static int dirrewrite_parent(const std::wstring& self, const std::wstring& dir) {
-    namespace fs = std::filesystem;
-    const std::wstring t = dir + L"dirrewrite\\";
-    std::error_code ec;
-    fs::remove_all(t, ec);
-    fs::create_directories(t + L"sub");
-    fs::copy_file(self, t + L"game.exe");
-    fs::copy_file(dir + L"d3d12.dll", t + L"d3d12.dll");
-    fs::copy_file(dir + L"d3d12.dll", t + L"sub\\d3d12.dll");
-    frames_on(t);   // so that the redirect is what keeps the frame hooks off
-    CHECK(run_wait(L"\"" + t + L"game.exe\" dirrewritechild \"" + t + L"sub\\d3d12.dll\"", t) == 0);
-    std::string log;
-    {
-        FILE* lf = _wfopen((t + L"scsfix.log").c_str(), L"rb");
-        CHECK(lf);   // written beside the exe: it was admitted there (its armed file is there)
-        for (char b[4096]; fgets(b, sizeof b, lf);) log += b;
-        fclose(lf);
-    }
-    CHECK(log.find("using the exe's") != std::string::npos && log.find("hook: device") != std::string::npos);
-    CHECK(log.find("frames: off: this dll was loaded from another folder") != std::string::npos);   // REFramework's hooks meet ours on the swap chain: not hooked
-    CHECK(!fs::exists(t + L"sub\\scsfix.log") && !fs::exists(t + L"sub\\scsfix.db") && !fs::exists(t + L"sub\\scsfix_creates.csv"));   // nothing in the folder it was reported under
-    printf("PASS dirrewrite: the recorder worked from the exe's folder\n");
-    return 0;
-}
-
 // `selftest slcreate`: Streamline's interposer exports D3D12CreateDevice and calls the system d3d12.dll's by the system folder's
 // path, so the recorder's own export never sees the device (Dead Space). With sl.interposer.dll beside the exe the recorder hooks
 // the system function: the "game" loads the recorder as d3d12.dll (a late delay-load) or as d3d11.dll (imported at start, which
@@ -3886,8 +3846,6 @@ int wmain(int argc, wchar_t** argv) {
     if (argc > 1 && !wcscmp(argv[1], L"reentry")) return reentry_rows(dir);
     if (argc > 1 && !wcscmp(argv[1], L"slcreate")) return slcreate_parent(a, dir);
     if (argc > 2 && !wcscmp(argv[1], L"slcreatechild")) return slcreate_child(argv[2]);
-    if (argc > 1 && !wcscmp(argv[1], L"dirrewrite")) return dirrewrite_parent(a, dir);
-    if (argc > 2 && !wcscmp(argv[1], L"dirrewritechild")) return dirrewrite_child(dir, argv[2]);
     if (argc > 1 && !wcscmp(argv[1], L"layoutrules")) return layout_rules();
     if (argc > 2 && !wcscmp(argv[1], L"so")) return so_rows(dir, (unsigned)_wtoi(argv[2]));
     if (argc > 2 && !wcscmp(argv[1], L"frames")) return frames_rows(dir, _wtoi(argv[2]));

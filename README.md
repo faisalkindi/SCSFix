@@ -11,6 +11,7 @@
 > SCSFix is a fork of [SCSKiller](https://github.com/BlueHeisenberg/SCSKiller) by BlueHeisenberg (GPL-3.0-or-later),
 > made to cover games SCSKiller can't compile yet. It has its own name, data folder (`%LOCALAPPDATA%\SCSFix\`) and
 > recorder file names, so it installs beside SCSKiller, and it never updates itself from SCSKiller's releases.
+> It is unofficial, and the measurements and screenshots below are SCSKiller's own, not SCSFix's.
 > The community database and Patreon sign-in belong to SCSKiller's author; SCSFix has no connection to them
 > beyond the code it shares.
 > Releases of this fork: [Releases](https://github.com/faisalkindi/SCSFix/releases). Bugs and games it can't do:
