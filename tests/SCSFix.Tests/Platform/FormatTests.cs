@@ -66,6 +66,8 @@ public class FormatTests
             (S(GameStatus.NeedsRecording, Core.Planning.Planner.Record + "; " + ScsFix.InDbNote) with { InCommunityDb = true }, "In the community database"),
             (S(GameStatus.NeedsRecording, ScsFix.RtNote(false)) with { InCommunityDb = false }, "For ray-traced effects"),
             (S(GameStatus.NeedsRecording, "the recording has no draws: play into the game world"), "Play into the game world"),
+            (S(GameStatus.Warmed, "warmed for driver 1.0; " + ScsFix.RtAfterRecordingNote), "Ray tracing needs a 5-min recording"),
+            (S(GameStatus.Warmed, "warmed for driver 1.0; " + ScsFix.RtAfterRecordingNote) with { RecorderInstalled = true }, "Recorder on: play with ray tracing"),
             (S(GameStatus.Unsupported, "needs a recording, which EasyAntiCheat blocks", ac: AntiCheat.EasyAntiCheat), "Blocked by EasyAntiCheat"),
             (S(GameStatus.Unsupported, "needs a recording, which its anti-cheat blocks", ac: AntiCheat.Other), "Blocked by anti-cheat"),
             (S(GameStatus.Unsupported, "needs a recording, which its anti-cheat blocks; " + ScsFix.InDbNote, ac: AntiCheat.Other) with { InCommunityDb = true },
