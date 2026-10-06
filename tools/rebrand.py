@@ -3,7 +3,14 @@
 upstream files get renamed the same way. Usage: python tools\\rebrand.py [--dry]
 
 Left alone on purpose: upstream's servers and repo (api/dl.scskiller.*, BlueHeisenberg/SCSKiller), the feed-signature
-domain string, licence files, third-party notices and the upstream changelog history."""
+domain string, licence files, third-party notices and the upstream changelog history.
+
+Merging a new upstream release (done for 1.2.3, 8 files conflicted): the fork's names differ from upstream's in every file, so a plain
+`git merge upstream/main` conflicts everywhere. Instead rebrand upstream's tree and merge that, with the previous rebranded upstream
+tree as the base: (1) `git worktree add --detach W upstream/main`, copy this script to W/tools and run it there, commit; make that
+commit a child of the last rebranded-upstream commit in this history (`git commit-tree <tree> -p <it>`; the last is 59766dd,
+"rebranded upstream v1.2.3"); (2) on a branch of main `git merge -s ours` that parent, so it counts as merged, then `git merge`
+the new commit: its base is the old rebranded tree and only the fork's own changes can conflict."""
 import re, subprocess, sys, pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
