@@ -3800,6 +3800,52 @@ static int slcreate_parent(const std::wstring& self, const std::wstring& dir) {
     return 0;
 }
 
+// `selftest switches`: scsfix.ini hooks=0 / nvapi=0 / sl=0 / lib=0 (Dragon's Dogma 2 diagnostics: which part of the recorder its
+// protection objects to). The "game" makes a device through the proxy's export; the log says what was installed.
+static int switches_child(const wchar_t* proxy) {
+    SetEnvironmentVariableW(L"SCSFIX_MODE", L"record");
+    HMODULE m = LoadLibraryW(proxy);
+    CHECK(m);
+    auto create = (decltype(&D3D12CreateDevice))GetProcAddress(m, "D3D12CreateDevice");
+    IDXGIFactory4* f = nullptr;
+    IDXGIAdapter* warp = nullptr;
+    CHECK(create && SUCCEEDED(CreateDXGIFactory2(0, IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
+    ID3D12Device* dev = nullptr;
+    CHECK(SUCCEEDED(create(warp, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev))));
+    return 0;
+}
+static int switches_parent(const std::wstring& self, const std::wstring& dir) {
+    namespace fs = std::filesystem;
+    struct Case { const char* ini; bool device, nvapi, sl_line, switches_line; };
+    const Case cases[] = {{"", true, true, true, false}, {"hooks=0\n", false, false, false, true}, {"nvapi=0\n", true, false, true, true},
+                          {"sl=0\n", true, true, false, true}};
+    bool nvapi_here = false;
+    for (size_t i = 0; i < std::size(cases); ++i) {
+        const std::wstring t = dir + L"switches" + std::to_wstring(i) + L"\\";
+        std::error_code ec;
+        fs::remove_all(t, ec);
+        fs::create_directories(t);
+        fs::copy_file(self, t + L"game.exe");
+        fs::copy_file(dir + L"d3d12.dll", t + L"d3d12.dll");
+        FILE* sl = _wfopen((t + L"sl.interposer.dll").c_str(), L"wb");
+        CHECK(sl);
+        fputs("stub", sl), fclose(sl);
+        FILE* ini = _wfopen((t + L"scsfix.ini").c_str(), L"wb");
+        CHECK(ini);
+        fputs("[scsfix]\nmode=record\n", ini), fputs(cases[i].ini, ini), fclose(ini);
+        CHECK(run_wait(L"\"" + t + L"game.exe\" switcheschild \"" + t + L"d3d12.dll\"", t) == 0);
+        const std::string log = slcreate_log(t);
+        auto has = [&](const char* s) { return log.find(s) != std::string::npos; };
+        CHECK(has("hook: device") == cases[i].device);
+        if (i == 0) nvapi_here = has("nvapi: hooks installed");   // NVIDIA's nvapi64.dll: not on every PC
+        if (nvapi_here) CHECK(has("nvapi: hooks installed") == cases[i].nvapi);
+        CHECK(has("streamline: sl.interposer.dll is here") == cases[i].sl_line);
+        CHECK(has("switches: hooks=") == cases[i].switches_line);
+    }
+    printf("PASS switches: hooks=0, nvapi=0 and sl=0 each leave out what they name and nothing else\n");
+    return 0;
+}
+
 // The app's attestation for this exe, as ScsFix.WriteAttestation writes it: scsfix.armed here (its nonce kept when it
 // has one, so copies of this exe running from the same folder share it) and the ledger entry
 // %LOCALAPPDATA%\SCSFix\armed\<the first of ledger_keys>, removed when this process exits.
@@ -3843,6 +3889,8 @@ int wmain(int argc, wchar_t** argv) {
     if (argc > 1 && !wcscmp(argv[1], L"d3d11recchild")) return d3d11rec_child(dir);
     if (argc > 1 && !wcscmp(argv[1], L"framegen")) return framegen_rows(dir);
     if (argc > 1 && !wcscmp(argv[1], L"vtcopy")) return vtcopy_rows(dir);
+    if (argc > 1 && !wcscmp(argv[1], L"switches")) return switches_parent(a, dir);
+    if (argc > 2 && !wcscmp(argv[1], L"switcheschild")) return switches_child(argv[2]);
     if (argc > 1 && !wcscmp(argv[1], L"reentry")) return reentry_rows(dir);
     if (argc > 1 && !wcscmp(argv[1], L"slcreate")) return slcreate_parent(a, dir);
     if (argc > 2 && !wcscmp(argv[1], L"slcreatechild")) return slcreate_child(argv[2]);

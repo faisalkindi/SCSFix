@@ -839,6 +839,9 @@ image (the kernel's name for it) is the same file, by volume and file id, as `<e
   exe's folder when the mapped image really is that folder's file, and the log says so (`dir:`; frame times then stay off). A recorder the game never
   loaded (the exe's last run began after it went in, and none of its files exists) is named on the game's page
   (`ScsFix.NotLoaded`).
+- **Diagnostic switches** (`scsfix.ini`, each on unless 0, logged when any is off; `selftest switches`): `hooks=0` the dll only forwards,
+  `nvapi=0` no inline patches in `nvapi64.dll`, `sl=0` no inline patch of the system `D3D12CreateDevice`, `lib=0` no hook on pipeline
+  libraries. For telling which part of the recorder a game's protection objects to (Dragon's Dogma 2: Denuvo's crash trap).
 - **Streamline**: its interposer (`sl.interposer.dll`) exports `D3D12CreateDevice` and calls the system `d3d12.dll`'s by the
   system folder's path, so a game that makes its device through it (Dead Space) never reaches the recorder's export, though the
   recorder is loaded and nothing is recorded. With `sl.interposer.dll` beside the exe (or loaded) the D3D12 role hooks the system

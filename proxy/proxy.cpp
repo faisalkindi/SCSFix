@@ -2156,6 +2156,11 @@ static void open_session() {  // once, at the first device: the db, the csv and 
     }
 }
 
+// Switches in scsfix.ini, all on unless set to 0, to tell which part of the recorder a game's protection objects to (Dragon's Dogma 2:
+// Denuvo, its crash trap fires some seconds into a launch with the recorder in, not without it): hooks=0 hooks nothing (the dll
+// only forwards), nvapi=0 no inline patches in nvapi64.dll, sl=0 no inline patch of the system D3D12CreateDevice for Streamline,
+// lib=0 no hook on pipeline libraries. Read once at load; logged when any is off.
+static bool g_sw_hooks = true, g_sw_nvapi = true, g_sw_sl = true, g_sw_lib = true;
 static void install_hooks(IUnknown* unk) {
     ID3D12Device* dev;
     if (FAILED(unk->QueryInterface(IID_PPV_ARGS(&dev)))) return;
@@ -2171,7 +2176,10 @@ static void install_hooks(IUnknown* unk) {
     ID3D12Device2* d2;
     if (SUCCEEDED(dev->QueryInterface(IID_PPV_ARGS(&d2)))) patch(*(void***)d2, SLOT_STREAM, (void*)hk_stream, o_stream), d2->Release();
     ID3D12Device1* d1;
-    if (SUCCEEDED(dev->QueryInterface(IID_PPV_ARGS(&d1)))) patch(*(void***)d1, SLOT_CREATELIB, (void*)hk_createlib, o_createlib), d1->Release();
+    if (SUCCEEDED(dev->QueryInterface(IID_PPV_ARGS(&d1)))) {
+        if (g_sw_lib) patch(*(void***)d1, SLOT_CREATELIB, (void*)hk_createlib, o_createlib);
+        d1->Release();
+    }
     ID3D12Device5* d5;  // ray tracing: absent on a runtime / driver without DXR
     if (SUCCEEDED(dev->QueryInterface(IID_PPV_ARGS(&d5)))) patch(*(void***)d5, SLOT_CSO, (void*)hk_cso, o_cso), d5->Release();
     ID3D12Device7* d7;
@@ -2832,6 +2840,7 @@ static ID3D12Device* unwrapped(IUnknown* unk) {
 static HRESULT device_created(HRESULT hr, IUnknown* adapter, D3D_FEATURE_LEVEL fl, void** pp) {
     if (FAILED(hr) || !pp || !*pp || !admitted()) return hr;
     pin_self();
+    if (!g_sw_hooks) return hr;   // scsfix.ini hooks=0: the device is the game's own
     install_hooks((IUnknown*)*pp);
     if (g_next) {
         auto create = (decltype(&D3D12CreateDevice))GetProcAddress(g_real, "D3D12CreateDevice");
@@ -2842,7 +2851,8 @@ static HRESULT device_created(HRESULT hr, IUnknown* adapter, D3D_FEATURE_LEVEL f
         if (ID3D12Device* real = unwrapped((IUnknown*)*pp)) hook_below(real, "layer's"), real->Release();
     }
     static std::once_flag nv, frames;
-    std::call_once(nv, nv_hooks), std::call_once(frames, frame_hooks);
+    if (g_sw_nvapi) std::call_once(nv, nv_hooks);
+    std::call_once(frames, frame_hooks);
     return hr;
 }
 
@@ -3325,10 +3335,16 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID reserved) {
     GetModuleFileNameW(nullptr, p, MAX_PATH);
     logf("loaded into %ls", p);
     if (*dir_note) logf("%ls", dir_note);
+    {
+        const std::wstring ini = g_dir + L"scsfix.ini";
+        auto on = [&](const wchar_t* key) { return GetPrivateProfileIntW(L"scsfix", key, 1, ini.c_str()) != 0; };
+        g_sw_hooks = on(L"hooks"), g_sw_nvapi = on(L"nvapi"), g_sw_sl = on(L"sl") && g_sw_hooks, g_sw_lib = on(L"lib");
+        if (!(g_sw_hooks && g_sw_nvapi && g_sw_sl && g_sw_lib)) logf("switches: hooks=%d nvapi=%d sl=%d lib=%d (scsfix.ini)", g_sw_hooks, g_sw_nvapi, g_sw_sl, g_sw_lib);
+    }
     if (warm_asked && !g_warm) logf("mode warm ignored: this process isn't scsfix_warm, it records");
     g_next = mod;
     if (mod) logf("next: %ls (the device and every export it has come from it)", next);
     else if (next_why) logf("next: %ls %s: the system d3d12.dll is used without it", next, next_why);
-    if (!g_warm && !mod && streamline_here()) g_is11 ? load_d3d12_role() : hook_system_create();
+    if (!g_warm && !mod && g_sw_sl && streamline_here()) g_is11 ? load_d3d12_role() : hook_system_create();
     return TRUE;
 }
