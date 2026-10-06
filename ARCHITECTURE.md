@@ -839,6 +839,12 @@ image (the kernel's name for it) is the same file, by volume and file id, as `<e
   exe's folder when the mapped image really is that folder's file, and the log says so (`dir:`; frame times then stay off). A recorder the game never
   loaded (the exe's last run began after it went in, and none of its files exists) is named on the game's page
   (`ScsFix.NotLoaded`).
+- **Dragon's Dogma 2** (Denuvo) ends itself, a few seconds after it opens a populated pipeline library, when any DLL of ours is in its
+  folder: found 2026-10-06 with `hooks=0` (nothing hooked) and with `pure.cpp` / `pure_dxgi.cpp` (forwarder-only `d3d12.dll` and `dxgi.dll`
+  built as `d3d12_pure.dll` / `dxgi_pure.dll`, test only), all of which crashed it, while a folder without them didn't. Launches whose
+  library was rejected or empty (nothing to check) survived. Under REFramework (its `dinput8.dll` hides the DLLs of the game's folder
+  from the game under `_storage_`, see Loading) the recorder records it with no crash. Delete a stale `_storage_/d3d12.dll` after an
+  update of the recorder: REFramework maps that copy.
 - **Diagnostic switches** (`scsfix.ini`, each on unless 0, logged when any is off; `selftest switches`): `hooks=0` the dll only forwards,
   `nvapi=0` no inline patches in `nvapi64.dll`, `sl=0` no inline patch of the system `D3D12CreateDevice`, `lib=0` no hook on pipeline
   libraries. For telling which part of the recorder a game's protection objects to (Dragon's Dogma 2: Denuvo's crash trap).

@@ -10,6 +10,8 @@ All notable changes to the SCSKiller app and command line. The format follows
 - Renamed to SCSFix: its own data folder (`%LOCALAPPDATA%\SCSFix`), recorder file names (`scsfix.*`), exe, logo and
   About page. It installs beside SCSKiller. `tools/rebrand.py` redoes the rename after merging upstream.
 - No self-update: the update feed and its keys are SCSKiller's, so the fork never checks, downloads or applies one.
+- Dragon's Dogma 2 crashes with any DLL of ours in its folder (even a forwarder that does nothing, built for the test as `pure.cpp` and
+  `pure_dxgi.cpp`) once it opens a populated pipeline library, and not without it; under REFramework it doesn't, and records. See ARCHITECTURE.
 - `scsfix.ini` switches `hooks=0`, `nvapi=0`, `sl=0`, `lib=0` leave parts of the recorder out, to find which one a game's protection objects to
   (Dragon's Dogma 2 crashes with the recorder in; the part isn't known yet).
 - Merged upstream SCSKiller 1.2.3 (its section below). Where it fixed what the fork had fixed (REFramework's `_storage_` path, frame generation's

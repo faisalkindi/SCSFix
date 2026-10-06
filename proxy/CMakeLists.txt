@@ -22,6 +22,13 @@ add_custom_command(TARGET scsfix POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_
 target_link_options(scsfix PRIVATE /MAP /DELAYLOAD:d3d11.dll /DELAYLOAD:d3dcompiler_47.dll /DELAYLOAD:dxgi.dll /DELAYLOAD:shell32.dll /DELAYLOAD:ole32.dll)
 target_link_libraries(scsfix delayimp)
 
+# The pure forwarder of pure.cpp, for diagnosing a game that objects to the recorder dll itself. Test only, never published.
+add_library(scsfix_pure SHARED pure.cpp pure_stubs.asm pure.def)
+set_target_properties(scsfix_pure PROPERTIES OUTPUT_NAME d3d12_pure)
+
+add_library(scsfix_pure_dxgi SHARED pure_dxgi.cpp pure_dxgi_stubs.asm pure_dxgi.def)
+set_target_properties(scsfix_pure_dxgi PROPERTIES OUTPUT_NAME dxgi_pure)
+
 add_executable(selftest selftest.cpp)
 target_link_libraries(selftest d3dcompiler)
 target_include_directories(selftest PRIVATE third_party/vulkan)  # headers only; vulkan-1.dll is loaded at run time
