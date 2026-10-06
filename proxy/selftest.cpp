@@ -3812,6 +3812,16 @@ static int switches_child(const wchar_t* proxy) {
     CHECK(create && SUCCEEDED(CreateDXGIFactory2(0, IID_PPV_ARGS(&f))) && SUCCEEDED(f->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
     ID3D12Device* dev = nullptr;
     CHECK(SUCCEEDED(create(warp, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev))));
+    // the runtime's SDK configuration object (the game's way to a device factory): does the proxy's D3D12GetInterface patch its vtable?
+    auto proxy_gi = (decltype(&D3D12GetInterface))GetProcAddress(m, "D3D12GetInterface");
+    auto sys_gi = (decltype(&D3D12GetInterface))GetProcAddress(load_system(L"d3d12.dll"), "D3D12GetInterface");
+    ID3D12SDKConfiguration1 *c0 = nullptr, *c1 = nullptr;
+    CHECK(proxy_gi && sys_gi && SUCCEEDED(sys_gi(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&c0))));
+    void* before = (*(void***)c0)[4];
+    CHECK(SUCCEEDED(proxy_gi(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&c1))));
+    FILE* out = fopen("gi.txt", "wb");
+    CHECK(out);
+    fputs((*(void***)c1)[4] == before ? "same" : "changed", out), fclose(out);
     return 0;
 }
 static int switches_parent(const std::wstring& self, const std::wstring& dir) {
@@ -3841,6 +3851,11 @@ static int switches_parent(const std::wstring& self, const std::wstring& dir) {
         if (nvapi_here) CHECK(has("nvapi: hooks installed") == cases[i].nvapi);
         CHECK(has("streamline: sl.interposer.dll is here") == cases[i].sl_line);
         CHECK(has("switches: hooks=") == cases[i].switches_line);
+        {
+            std::string gi;
+            if (FILE* g = _wfopen((t + L"gi.txt").c_str(), L"rb")) { char b[16] = {}; fread(b, 1, 15, g), fclose(g), gi = b; }
+            CHECK(gi == (i == 1 ? "same" : "changed"));   // hooks=0 leaves the runtime's objects alone; every other case patches them
+        }
     }
     printf("PASS switches: hooks=0, nvapi=0 and sl=0 each leave out what they name and nothing else\n");
     return 0;

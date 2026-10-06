@@ -2966,6 +2966,7 @@ static HRESULT STDMETHODCALLTYPE hk_createdevicefactory(ID3D12SDKConfiguration1*
 extern "C" HRESULT WINAPI Proxy_D3D12GetInterface(REFCLSID clsid, REFIID riid, void** pp) {
     if (!real_D3D12GetInterface) return E_NOINTERFACE;  // a runtime from before it
     HRESULT hr = ((decltype(&D3D12GetInterface))real_D3D12GetInterface)(clsid, riid, pp);
+    if (!g_sw_hooks) return hr;  // scsfix.ini hooks=0: nothing of the runtime's objects is touched (the first diagnostic run left these hooks in)
     if (FAILED(hr) || !pp || !*pp || g_admission < 0) return hr;  // undecided: the factory hooks forward to device_created
     if (clsid == CLSID_D3D12DeviceFactory) hook_factory((IUnknown*)*pp);
     ID3D12SDKConfiguration1* c;
