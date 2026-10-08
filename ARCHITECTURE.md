@@ -107,16 +107,13 @@ Building and running the tests: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Data locations
 
-Everything lives under `%LOCALAPPDATA%\SCSFix\`, or under `data\` beside `SCSFix.exe` when an empty `portable.txt` sits there
-(`AppStore.Resolve`, a portable folder). The recorders' armed ledger (`armed\`) always stays in `%LOCALAPPDATA%\SCSFix\`: the
+Everything lives under `%LOCALAPPDATA%\SCSFix\`, or under `data\` beside the exe in a portable copy (`AppStore.Resolve`, upstream's). The recorders' armed ledger (`armed\`) always stays in `%LOCALAPPDATA%\SCSFix\`: the
 proxy in a game's folder reads it from there.
 
 - `settings.json`.
 - `window.json`: where the main window was last closed (restored bounds and whether it was maximized; `MainWindow.RestorePlacement`
   and `SavePlacement`, saved as it closes to the tray, quits or restarts to update).
-- `crash.log`: what the app wrote when it couldn't start or an exception reached the top (`CrashLog`: the exception, the Windows and
-  runtime versions, and the CPU facts a start can depend on: AVX2, BMI2, SSE4.2, whether UAC is on). A start that fails also says so
-  in a message box. An updater hook step that throws is logged there and the others still run.
+- `crash.log`: what the app wrote when it couldn't start or closed on its own (`CrashLog`, upstream's); a start that fails says where it is.
 - `games\<game id, ':' replaced by '_'>\` when that is a plain folder name; an id that isn't (separators, `..`,
   trailing dots or spaces, from launcher metadata) gets `%` and the id percent-encoded instead, a name the plain ones
   never take (`AppStore.GameDir`):
@@ -927,6 +924,10 @@ image (the kernel's name for it) is the same file, by volume and file id, as `<e
 - **Diagnostic switches** (`scsfix.ini`, each on unless 0, logged when any is off; `selftest switches`): `hooks=0` the dll only forwards,
   `nvapi=0` no inline patches in `nvapi64.dll`, `sl=0` no inline patch of the system `D3D12CreateDevice`, `lib=0` no hook on pipeline
   libraries. For telling which part of the recorder a game's protection objects to (Dragon's Dogma 2: Denuvo's crash trap).
+- **Streamline (fork override, keep it in every merge)**: upstream 1.2.4 never records a game on NVIDIA whose Streamline loads the first
+  `d3d12.dll` (`slFirst` in `ScsFix`, `SkipStreamline`). The fork's recorder hooks the system `D3D12CreateDevice` for those games, and
+  Dead Space and Dragon's Dogma 2 record, so `slFirst` is forced false (a `FORK:` comment) and the two upstream theories that assert the
+  block are skipped. A merge that loses that line puts the block back with no error.
 - **Streamline**: its interposer (`sl.interposer.dll`) exports `D3D12CreateDevice` and calls the system `d3d12.dll`'s by the
   system folder's path, so a game that makes its device through it (Dead Space) never reaches the recorder's export, though the
   recorder is loaded and nothing is recorded. With `sl.interposer.dll` beside the exe (or loaded) the D3D12 role hooks the system

@@ -95,8 +95,7 @@ and run it. It installs for your user only and needs no admin rights. SCSFix doe
 release to update.
 
 Or take `SCSFix-<version>-Portable.zip`, unzip it to any folder you can write to and run `SCSFix.exe`. Before deleting a portable folder, turn recording off for your games, so the recorder leaves the
-game folders. A portable folder keeps its settings in `%LOCALAPPDATA%\SCSFix\` like the installed app; to keep them in the folder
-instead, put an empty file named `portable.txt` next to `SCSFix.exe` (they go in a `data` folder there; the recorder's small
+game folders. A portable copy keeps its settings and data in a `data` folder beside the exe (the recorder's small
 ledger stays in `%LOCALAPPDATA%\SCSFix\armed`).
 
 <!-- UNSIGNED NOTICE: delete this block once releases are signed. -->

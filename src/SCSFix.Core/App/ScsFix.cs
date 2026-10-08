@@ -832,7 +832,9 @@ public sealed partial class ScsFix : IScsFix
         TimeSpan? fast = psos is { } n ? TimeSpan.FromSeconds(n / (rec.PsoPerSecond ?? WarmRate)) : null;
         TimeSpan? careful = cap != null && psos is { } np && recorded is { } nr ? TimeSpan.FromSeconds(nr / DefaultCarefulPsoPerSecond + (np - nr) / (rec.PsoPerSecond ?? WarmRate)) : null;
         var (_, engine, antiCheat, check, _, streamlineFirst, _, _) = Evaluated(g, rec, force, out fresh);
-        var slFirst = streamlineFirst && Vendor.Vendor == GpuVendor.Nvidia;
+        // FORK: upstream never records a game whose Streamline loads the first d3d12.dll on NVIDIA; the recorder hooks the system
+        // D3D12CreateDevice for that (proxy.cpp hook_system_create), so those games record (Dead Space, Dragon's Dogma 2): never "slFirst".
+        var slFirst = false && streamlineFirst && Vendor.Vendor == GpuVendor.Nvidia;
         driverStale = rec.WarmedAt != null && !CurrentDriver(gpuNow, rec.WarmedDriverId, rec.WarmedDriverVersion);
         var counted = rec.Pending;
         var pending = PendingOf(g, rec);   // after the import and the scan's engine: derived from what they and any download left
@@ -1212,21 +1214,6 @@ public sealed partial class ScsFix : IScsFix
 
     /// <summary>A warming item that stopped moving: its note says for how long, and it has no time estimate.</summary>
     public static bool Stalled(QueueItem q) => q.Stage == QueueStage.Warming && q.Note?.StartsWith("no progress") == true;
-
-    /// <summary>Above this a single game's compile is warned about: Borderlands 4 planned 796,000 pipelines and wrote 64 GB of cache
-    /// in an hour, and its players found the game still compiling on load (upstream issues 25 and 52).</summary>
-    public const long LargeCompileBytes = 16L << 30;
-
-    /// <summary>A warning when a queued game would add more than <see cref="LargeCompileBytes"/> to the shader cache, else null.
-    /// Not a refusal: some games are that big.</summary>
-    public static string? LargeCompileWarning(IReadOnlyList<(string Game, long Bytes)> queue, long threshold = LargeCompileBytes)
-    {
-        var big = queue.Where(q => q.Bytes > threshold).ToList();
-        if (big.Count == 0) return null;
-        return $"{string.Join(", ", big.Select(q => $"{q.Game} would add about {Format.Bytes(q.Bytes)}"))} to the driver's shader cache. That is a very large compile: it takes long, "
-            + "can push other games' shaders out, and what the game really uses is usually far fewer pipelines than the files hold. "
-            + "A recording of play (Record on the game's page) plans from what the game creates, and is usually much smaller.";
-    }
 
     /// <summary>What a warm's counts say beyond the compiled ones; null when all are 0. Failed = the driver rejected it;
     /// skipped = never replayed; crashed = never replayed because its create removed the device (crashed the GPU driver).</summary>
@@ -4999,7 +4986,7 @@ public sealed partial class ScsFix : IScsFix
 
     /// <summary>The files the app and the proxy write next to the exe: none is an anti-cheat marker.</summary>
     static readonly HashSet<string> RecorderOwnFiles = new([.. RecorderDataFiles, .. Recordings.AppFiles, "d3d12.dll", Proxy11, "scsfix.ini", ChainName, ArmedFile,
-        "d3d12.dll" + TempSuffix, "scsfix.ini" + TempSuffix], StringComparer.OrdinalIgnoreCase);
+        "d3d12.dll" + TempSuffix, Proxy11 + TempSuffix, "scsfix.ini" + TempSuffix], StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The file types a game or a mod writes as it runs that anti-cheat never ships as: logs, settings and presets,
     /// pages, images, saves, dumps, shader caches. Every other type counts, an unknown one included.</summary>

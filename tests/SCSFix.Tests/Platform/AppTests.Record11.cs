@@ -25,7 +25,6 @@ public partial class AppTests
     [Fact]
     public async Task A_record_only_game_on_DirectX_11_gets_d3d11_dll_as_its_only_recorder()
     {
-        using var _ = new FreshLedger(_root);
         var k = Recording11(Packed11);
         await k.ScanAsync(default);
         Assert.True(k.Games.Single().Records11);
@@ -33,24 +32,24 @@ public partial class AppTests
         Assert.False(File.Exists(Dll12));   // nothing of D3D12 in a game that only runs on DirectX 11
         Assert.Equal(File.ReadAllBytes(_proxy), File.ReadAllBytes(Dll11));   // the same binary under the other name
         Assert.Equal(["d3d11.dll", "scsfix.ini"], k.Store.LoadGame(_game.Id).RecorderFiles.Keys.Order());
+        await Until(() => ArmedState(_game) == true);   // armed a moment after the scan returns, as the Arming tests wait too
         await AssertStaysArmed(k, _game);   // the install watcher doesn't take the new d3d11.dll for a program it must disarm for
     }
 
     [Fact]
     public async Task A_game_that_may_run_on_either_gets_both_names()
     {
-        using var _ = new FreshLedger(_root);
         var k = Recording11(Packed11 with { GraphicsApi = UnrealRhi.Ambiguous });
         await k.ScanAsync(default);
         Assert.True(ScsFix.IsOurProxy(Dll12) && ScsFix.IsOurProxy(Dll11));
         Assert.Equal(["d3d11.dll", "d3d12.dll", "scsfix.ini"], k.Store.LoadGame(_game.Id).RecorderFiles.Keys.Order());
+        await Until(() => ArmedState(_game) == true);   // armed a moment after the scan returns, as the Arming tests wait too
         await AssertStaysArmed(k, _game);
     }
 
     [Fact]
     public async Task Turning_the_recorder_off_removes_both_files_and_nothing_else()
     {
-        using var _ = new FreshLedger(_root);
         var k = Recording11(Packed11 with { GraphicsApi = UnrealRhi.Ambiguous });
         await k.ScanAsync(default);
         File.WriteAllText(Path.Combine(_exeDir, "game.cfg"), "settings");   // the game's own
@@ -63,7 +62,6 @@ public partial class AppTests
     [Fact]
     public async Task Another_d3d11_dll_is_never_replaced()
     {
-        using var _ = new FreshLedger(_root);
         var foreign = "MZ somebody's d3d11.dll (ReShade?)"u8.ToArray();
         File.WriteAllBytes(Dll11, foreign);
         // only on DirectX 11: no recorder at all, and the reason says why
@@ -78,7 +76,6 @@ public partial class AppTests
     [Fact]
     public async Task Another_d3d11_dll_stays_when_the_DirectX_12_recorder_goes_in()
     {
-        using var _ = new FreshLedger(_root);
         var foreign = "MZ somebody's d3d11.dll (ReShade?)"u8.ToArray();
         File.WriteAllBytes(Dll11, foreign);
         // on either API: the DirectX 12 recorder goes in, the other d3d11.dll stays
@@ -94,7 +91,6 @@ public partial class AppTests
     [Fact]
     public async Task Only_a_record_only_game_on_a_GPU_whose_D3D11_cache_is_warmed_gets_it()
     {
-        using var _ = new FreshLedger(_root);
         var amd = Recording11(Packed11, profile: "fake-1");   // the D3D11 warm is NVIDIA's (Planner.D3D11Cache)
         await amd.ScanAsync(default);
         Assert.Equal(ScsFix.SkipNotDx12, amd.Games.Single().RecorderSkip);
@@ -109,7 +105,6 @@ public partial class AppTests
     [Fact]
     public async Task A_d3d11_recorder_the_game_calls_its_own_is_found_by_either_name()
     {
-        using var _ = new FreshLedger(_root);
         var k = Recording11(Packed11);
         await k.ScanAsync(default);
         var s = k.Games.Single();

@@ -24,10 +24,11 @@ All notable changes to the SCSKiller app and command line. Versions follow [Sema
   still need a recording. Whether the game's own launch finds these in the driver's cache isn't known until it is played.
 - A crash log (`%LOCALAPPDATA%\SCSFix\crash.log`) with the Windows, runtime and CPU facts, and a message when the app can't start;
   an updater hook that throws no longer stops the ones after it.
-- The window opens where it was last closed, at its size, maximized or not (from upstream pull request 40; it also stays hidden for a
-  `--tray` start, and a position on a monitor that's gone is moved onto one).
-- A portable folder keeps its data beside the exe when an empty `portable.txt` is there (upstream issue 50).
-- A warning in the queue before a compile that would add more than 16 GB to the driver's cache (upstream issues 25, 52).
+- Merged upstream SCSKiller 1.2.4 (its section below). Its versions replace the fork's where both did the same: the window's size and
+  place, the crash log, the portable data folder (its `.portable` marker, not the fork's `portable.txt`), the 16 GB queue warning, the
+  process that holds a game's name, the Unreal version guess, the "recorder never loaded" note. Kept: the recorder under Streamline
+  (upstream 1.2.4 leaves such games unrecorded on NVIDIA; the fork records them), D3D11 recorder, opt-in frame times, Present
+  re-entry cut, diagnostic switches, Crimson Desert reader.
 - A DirectX 11 recorder: the recorder installed as `d3d11.dll` records a DirectX 11 game's shaders and tessellation
   pairs, and the compile replays them. NVIDIA only, like the D3D11 warm. Installed only where the game can't be read.
 

@@ -10,7 +10,9 @@ Merging a new upstream release (done for 1.2.3, 8 files conflicted): the fork's 
 tree as the base: (1) `git worktree add --detach W upstream/main`, copy this script to W/tools and run it there, commit; make that
 commit a child of the last rebranded-upstream commit in this history (`git commit-tree <tree> -p <it>`; the last is 59766dd,
 "rebranded upstream v1.2.3"); (2) on a branch of main `git merge -s ours` that parent, so it counts as merged, then `git merge`
-the new commit: its base is the old rebranded tree and only the fork's own changes can conflict."""
+the new commit: its base is the old rebranded tree and only the fork's own changes can conflict. After it, keep the fork's
+overrides: `slFirst = false` in ScsFix.cs (upstream won't record a Streamline game on NVIDIA; the fork's hook does), the skipped
+Streamline theories in AppTests.Arming.cs, `StreamlineFirst`/RecordOnly/Records11 fields, ScsFix.SelfUpdateDisabled."""
 import re, subprocess, sys, pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent

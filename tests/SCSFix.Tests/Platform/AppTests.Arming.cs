@@ -513,7 +513,7 @@ public partial class AppTests
     /// on NVIDIA its first d3d12.dll comes with Streamline's plugins, so it gets no recorder (an installed one goes) and asks
     /// for no recording. <paramref name="chain"/>: the exe imports a DLL of its folder that imports d3d12.dll (The Witcher 3's
     /// GFSDK_SSAO_D3D12), which loads the recorder first.</summary>
-    [Theory]
+    [Theory(Skip = "FORK: upstream does not record a Streamline game on NVIDIA; the fork records it through its hook on the system D3D12CreateDevice (ScsFix: slFirst is never true)")]
     [InlineData(GpuVendor.Nvidia, false, true)]
     [InlineData(GpuVendor.Amd, false, false)]
     [InlineData(GpuVendor.Nvidia, true, false)]
@@ -540,7 +540,7 @@ public partial class AppTests
 
     /// <summary>The cached answer follows the DLLs it was read from, not only the exe: sl.interposer.dll removed, or a DLL the
     /// exe imports updated to import d3d12.dll, makes the game recordable again at the next refresh.</summary>
-    [Theory]
+    [Theory(Skip = "FORK: upstream does not record a Streamline game on NVIDIA; the fork records it through its hook on the system D3D12CreateDevice (ScsFix: slFirst is never true)")]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_streamline_verdict_follows_the_dlls_it_was_read_from(bool update)
