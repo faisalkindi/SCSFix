@@ -102,7 +102,9 @@ public sealed class GameVerdicts
     public string? NoStutter(Game game, EngineInfo? engine) => Find(game, engine, NoStutterVerdict)?.Text;
 
     /// <summary>The unsupported or unsupported-yet verdict on the game; null when there is none.</summary>
-    public Verdict? Unsupported(Game game, EngineInfo? engine) => Find(game, engine, UnsupportedVerdict) ?? Find(game, engine, UnsupportedYetVerdict);
+    public Verdict? Unsupported(Game game, EngineInfo? engine) => Find(game, engine, UnsupportedVerdict) ?? (engine is { AftermathShaderDebug: true } ? null : Find(game, engine, UnsupportedYetVerdict));
+    // FORK: an "unsupported-yet" game that runs NVIDIA Aftermath with shader debug info (STAR WARS: Galactic Racer) is waiting for
+    // the very app update the fork has: scsfix_warm --aftermath starts Aftermath as the game does. Keep through merges.
 
     // "Unreal 5.7" takes 5.7 and 5.7.4, not 5.70; builds are Game.Version values
     Verdict? Find(Game game, EngineInfo? engine, string verdict) =>

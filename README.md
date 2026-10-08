@@ -73,6 +73,9 @@ Measured with SCSFix's pipeline recorder. Your numbers will vary by game, GPU an
   is), the game's page graphs your last session and tells the shader stutters apart from other hitches. Frame times stay on
   your PC. It is off by default: it hooks the game's Present, where the Steam overlay, frame limiters (FramePacer) and
   mods (REFramework) hook too, and those hooks have crashed Dragon's Dogma 2.
+- **Games with NVIDIA Aftermath shader debug info** (STAR WARS: Galactic Racer) are compiled the way the game starts
+  them, because the driver keeps their shaders under another key. Whether a game's own launch then finds them is only known
+  once it is played.
 - **Play button** in the Library and on a game's page: starts the game through its store.
 - **Community shader hash database** for Patreon supporters: other players' recordings, so your games are covered
   without recording them first. Sharing yours is opt-in, anonymous and hash-only.

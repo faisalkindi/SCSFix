@@ -210,6 +210,10 @@ pipelines, not taken from documentation. `VendorCaps` holds the result per vendo
   judged once the launch's records are imported. The game stays Warmed (Ready after Clear cache) with "the compile
   didn't help this game on NVIDIA, it needs a custom loader", out of re-warms, Add all and new-pipeline notices, until a
   later warm completes (one started by hand).
+  FORK: the warm now starts Aftermath like the game (`scsfix_warm --aftermath <the game's GFSDK_Aftermath_Lib.x64.dll> --aftermath-version <hex>`:
+  `EnableGpuCrashDumps`, then `DX12_Initialize` with flags 0x8, version = file version major << 8 | minor), set from `EngineInfo.AftermathShaderDebug` on NVIDIA.
+  Measured with a probe: a PSO created under crash dumps + init 8 is a cache hit for crash dumps + init 8 or 0x1F, a miss for plain, dumps only, init only, init 0, init 1.
+  Not yet confirmed by a launch of the game.
 - An Unreal game whose Engine ini sets `r.GPUCrashDebugging.Aftermath.DumpShaderDebugInfo=1` or `.TrackAll=1` (and not
   `r.GPUCrashDebugging.Aftermath=0`; the generic `r.GPUCrashDebugging` takes no part) and that ships
   `GFSDK_Aftermath_Lib*.dll` under `Engine\Binaries\ThirdParty\NVIDIA\NVaftermath` gets `EngineInfo.AftermathShaderDebug`

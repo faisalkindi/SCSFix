@@ -12,7 +12,8 @@ commit a child of the last rebranded-upstream commit in this history (`git commi
 "rebranded upstream v1.2.3"); (2) on a branch of main `git merge -s ours` that parent, so it counts as merged, then `git merge`
 the new commit: its base is the old rebranded tree and only the fork's own changes can conflict. After it, keep the fork's
 overrides: `slFirst = false` in ScsFix.cs (upstream won't record a Streamline game on NVIDIA; the fork's hook does), the skipped
-Streamline theories in AppTests.Arming.cs, `StreamlineFirst`/RecordOnly/Records11 fields, ScsFix.SelfUpdateDisabled."""
+Streamline theories in AppTests.Arming.cs, `StreamlineFirst`/RecordOnly/Records11 fields, ScsFix.SelfUpdateDisabled, the `FORK:` Aftermath exception in GameVerdicts.Unsupported and
+`WarmOptions.Aftermath` / `scsfix_warm --aftermath` (the warm starts NVIDIA Aftermath like the game)."""
 import re, subprocess, sys, pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent

@@ -4487,7 +4487,8 @@ public sealed partial class ScsFix : IScsFix
                 }
                 var threads = ThreadsOverride ?? (background ? Settings.BackgroundThreads : Settings.Threads);
                 var options = new WarmOptions(threads, background ? WarmPriority.Idle : Settings.Priority, rec.ResumeAt, CompileMemoryGB(Settings) * 1024,
-                    rec.CrashKeys.Count > 0 ? [.. rec.CrashKeys] : null, cap is { } most ? Math.Min(threads, most) : 0);
+                    rec.CrashKeys.Count > 0 ? [.. rec.CrashKeys] : null, cap is { } most ? Math.Min(threads, most) : 0,
+                    engine.AftermathShaderDebug && Vendor.Vendor == GpuVendor.Nvidia ? Warmer.AftermathLib(game) : null);
                 if (options.StartAt == 0) (rec.ResumeItems, rec.ResumeSeconds, rec.ResumeFailed) = (0, 0, 0);   // a resume point reset elsewhere drops its segments too
                 var staged = game with { ExePath = Path.Combine(Path.GetDirectoryName(game.ExePath)!, exe) };
                 var reporter = new Reporter<WarmProgress>(p => { progress = p with { Failed = p.Failed + rec.ResumeFailed, Skipped = skipped }; Stage(QueueStage.Warming); });

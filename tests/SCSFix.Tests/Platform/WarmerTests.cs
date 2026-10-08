@@ -115,6 +115,20 @@ public class WarmerTests : IDisposable
         public void Report(WarmProgress p) { Last = p; Interlocked.Increment(ref Count); }
     }
 
+    /// <summary>FORK: the Aftermath library under an Unreal install, and its Version_API from the file version (2.23 = 0x217).</summary>
+    [Fact]
+    public void Aftermath_library_is_found_in_the_unreal_folder_and_versioned_like_the_sdk()
+    {
+        var install = Path.Combine(_dir, "games", "AftermathGame");
+        var lib = Path.Combine(install, "Engine", "Binaries", "ThirdParty", "NVIDIA", "NVaftermath", "Win64", "GFSDK_Aftermath_Lib.x64.dll");
+        Assert.Null(Warmer.AftermathLib(Game with { InstallDir = install }));
+        Directory.CreateDirectory(Path.GetDirectoryName(lib)!);
+        File.WriteAllBytes(lib, [0]);
+        Assert.Equal(lib, Warmer.AftermathLib(Game with { InstallDir = install }));
+        Assert.Null(Warmer.AftermathVersion(lib));   // no version resource
+        Assert.Equal(10 << 8, Warmer.AftermathVersion(Path.Combine(Environment.SystemDirectory, "kernel32.dll")) & 0xFF00);
+    }
+
     [Fact]
     public void Parser_reads_every_event_and_ignores_noise()
     {

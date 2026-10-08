@@ -96,6 +96,26 @@ public sealed class Warmer(IGpuVendorBackend vendor, string? warmExe = null) : I
         return ["--ags", agsDll, "--ags-app", reg.App, "--ags-engine", reg.Engine];
     }
 
+    /// <summary>The game's NVIDIA Aftermath library (an Unreal install holds it under Engine\Binaries\ThirdParty\NVIDIA\NVaftermath\Win64),
+    /// or null. With crash dumps and shader debug info the driver files every pipeline under another cache key, so the
+    /// compile starts Aftermath the way the game does.</summary>
+    public static string? AftermathLib(Game game)
+    {
+        var dll = Path.Combine(game.InstallDir, "Engine", "Binaries", "ThirdParty", "NVIDIA", "NVaftermath", "Win64", "GFSDK_Aftermath_Lib.x64.dll");
+        return File.Exists(dll) ? dll : null;
+    }
+
+    /// <summary>GFSDK_Aftermath_Version_API of a library: its file version, major &lt;&lt; 8 | minor (2.23 = 0x217); null when unreadable.</summary>
+    public static int? AftermathVersion(string dll)
+    {
+        try
+        {
+            var v = System.Diagnostics.FileVersionInfo.GetVersionInfo(dll);
+            return v.FileMajorPart is > 0 and < 256 && v.FileMinorPart is >= 0 and < 256 ? v.FileMajorPart << 8 | v.FileMinorPart : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
     /// <summary>scsfix_warm's --d3d12: the folder of the Agility SDK runtime the game's exe asks for (its D3D12SDKPath
     /// export, relative to the exe), when it holds a D3D12Core.dll; null otherwise. The warm then runs on that runtime, as
     /// the game does: where the system's is older (Windows 10), it rejects what the game recorded on the newer one.</summary>
@@ -194,6 +214,11 @@ sealed class WarmRun : IWarmRun
                          "--stop-event", stopName, "--adapter-luid", gpu.AdapterLuid.ToString("X16") })
                 psi.ArgumentList.Add(a);
             if (o.MemoryMB > 0) { psi.ArgumentList.Add("--memory-mb"); psi.ArgumentList.Add(o.MemoryMB.ToString()); }
+            if (o.Aftermath != null && Warmer.AftermathVersion(o.Aftermath) is { } amVersion)
+            {
+                psi.ArgumentList.Add("--aftermath"); psi.ArgumentList.Add(o.Aftermath);
+                psi.ArgumentList.Add("--aftermath-version"); psi.ArgumentList.Add(amVersion.ToString("x"));
+            }
             if (rtThreads > 0) { psi.ArgumentList.Add("--rt-threads"); psi.ArgumentList.Add(rtThreads.ToString()); }
             if (skip.Count > 0) { psi.ArgumentList.Add("--skip"); psi.ArgumentList.Add(string.Join(',', skip)); }
             if (stagePath != null) { psi.ArgumentList.Add("--stage-path"); psi.ArgumentList.Add(stagePath); }

@@ -8,7 +8,7 @@
 //                  [--memory-mb N] [--package <app user model id>] [--stage-path <install folder>\<dir>\<exe>]
 //                  [--skip-keys <sha1 hex>,...] [--isolate i,j,...]
 //                  [--ags <amd_ags_x64.dll> --ags-app <name> --ags-engine <name>] [--pass K] [--layer <folder>]
-//                  [--d3d12 <the game's Agility SDK folder>]
+//                  [--d3d12 <the game's Agility SDK folder>] [--aftermath <GFSDK_Aftermath_Lib.x64.dll> --aftermath-version <hex>]
 //
 // Protocol (JSON lines on stdout, exit codes): ARCHITECTURE.md. Stages <workdir>\stage-<pid>-<n>\<exe name> (a new folder
 // of this run's) + d3d12.dll (the proxy) + the dbs and runs that copy (the child), which prints the JSON. The caller only
@@ -82,6 +82,8 @@ struct Opts {
     std::wstring ags, ags_app, ags_engine;
     std::wstring layer;          // a copy of the game's layer (ReShade's dll, its ini, add-ons), staged next to the exe
     std::wstring d3d12;          // the game's Agility SDK folder (its D3D12Core.dll)
+    std::wstring aftermath;      // the game's GFSDK_Aftermath_Lib.x64.dll: crash dumps with shader debug info, as the game starts it
+    uint32_t am_version = 0;     // its GFSDK_Aftermath_Version_API (major << 8 | minor)
     UINT sdk = 0;                // set by the parent for its child: the staged D3D12Core.dll's SDK version
     int pass = -1;
 };
@@ -105,6 +107,8 @@ static bool parse(int argc, wchar_t** argv, int i, Opts& o) {
         else if (k == L"--pass") o.pass = (int)wcstol(v.c_str(), &end, 10);
         else if (k == L"--layer") o.layer = v;
         else if (k == L"--d3d12") o.d3d12 = v;
+        else if (k == L"--aftermath") o.aftermath = v;
+        else if (k == L"--aftermath-version") o.am_version = wcstoul(v.c_str(), &end, 16);
         else if (k == L"--sdk") o.sdk = wcstoul(v.c_str(), &end, 10);
         else if (k == L"--skip" || k == L"--isolate") {
             for (const wchar_t* c = v.c_str(); *c;) {
@@ -190,6 +194,33 @@ static std::wstring ags_device(const Opts& o, IDXGIAdapter* adapter, ID3D12Devic
     return rp.extensions & AGS_APP_REGISTRATION ? L"" : L"the driver doesn't support AGS app registration";
 }
 
+// NVIDIA Aftermath as an Unreal game with shader debug info starts it (measured: the driver keys its cache on crash dumps
+// being enabled and DX12_Initialize's GenerateShaderDebugInfo, 0x8; the other flags and the callbacks change nothing).
+// Without it a warm fills a cache the game never reads.
+static void CALLBACK am_dump(const void*, unsigned, void*) {}
+static void CALLBACK am_debug(const void*, unsigned, void*) {}
+static void CALLBACK am_desc(void*, void*) {}
+static void CALLBACK am_marker(const void*, void*, void**, unsigned*) {}
+static HMODULE g_aftermath;
+
+// before the device, like the game's; on failure the reason, and the warm goes on without
+static std::wstring aftermath_dumps(const Opts& o) {
+    g_aftermath = LoadLibraryExW(o.aftermath.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!g_aftermath) return L"loading " + o.aftermath + L" failed (error " + std::to_wstring(GetLastError()) + L")";
+    auto enable = (int(*)(int, unsigned, unsigned, void*, void*, void*, void*, void*))GetProcAddress(g_aftermath, "GFSDK_Aftermath_EnableGpuCrashDumps");
+    if (!enable) return L"no GFSDK_Aftermath_EnableGpuCrashDumps";
+    int r = enable((int)o.am_version, 1 /* DX */, 0, am_dump, am_debug, am_desc, am_marker, nullptr);
+    return r == 1 ? L"" : L"EnableGpuCrashDumps returned " + std::to_wstring(r);
+}
+
+// on the device just created
+static std::wstring aftermath_init(const Opts& o, ID3D12Device* dev) {
+    auto init = (int(*)(int, unsigned, void*))GetProcAddress(g_aftermath, "GFSDK_Aftermath_DX12_Initialize");
+    if (!init) return L"no GFSDK_Aftermath_DX12_Initialize";
+    int r = init((int)o.am_version, 0x8, dev);
+    return r == 1 ? L"" : L"DX12_Initialize returned " + std::to_wstring(r);
+}
+
 // runs as <game exe name>; exit 0 = done printed, 1 = error printed, 3 = retry printed (a new process goes on from there)
 static int child(DWORD parent_pid, const Opts& o) {
     for (int fd : {1, 2}) {  // a packaged child's output goes through the parent's pipes
@@ -249,6 +280,12 @@ static int child(DWORD parent_pid, const Opts& o) {
     warm_rt(o.rt_threads, o.skip.data(), (uint32_t)o.skip.size());
     memory(o.memory_mb);
     warm_crash(o.skip_keys.data(), (uint32_t)(o.skip_keys.size() / 20), o.isolate.data(), (uint32_t)o.isolate.size());
+    bool am = false;
+    if (!o.aftermath.empty() && o.am_version) {
+        std::wstring why = aftermath_dumps(o);
+        am = why.empty();
+        if (!am) fwprintf(stderr, L"Aftermath: %ls: the compile runs without it (the game's cache key may differ)\n", why.c_str());
+    }
     if (!o.ags.empty()) {
         std::wstring why = ags_device(o, best, &dev);
         if (!why.empty()) fwprintf(stderr, L"AGS app %ls: %ls%ls\n", o.ags_app.c_str(), why.c_str(), dev ? L"" : L": a plain device (the exe name's cache)");
@@ -262,6 +299,11 @@ static int child(DWORD parent_pid, const Opts& o) {
         wchar_t why[16];
         swprintf_s(why, L" (0x%08X)", (unsigned)hr);
         return fail(L"D3D12 device creation failed on " + std::wstring(bd.Description) + why);
+    }
+
+    if (am) {
+        std::wstring why = aftermath_init(o, dev);
+        if (!why.empty()) fwprintf(stderr, L"Aftermath: %ls: the compile runs without it (the game's cache key may differ)\n", why.c_str());
     }
 
     uint64_t p[4];  // done, total, failed, finished

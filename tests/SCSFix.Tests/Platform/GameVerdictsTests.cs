@@ -35,6 +35,19 @@ public class GameVerdictsTests : IDisposable
     ContentTrust Trust() => new(new AppStore(_dir), new Dictionary<string, string> { ["rules-a"] = Key.Public });
     static string Signed(string body, string seed, string name = GameVerdicts.Name) => ContentTrust.Sign(Convert.FromBase64String(seed), "rules-a", name, body, T);
 
+    /// <summary>FORK: the unsupported-yet note waits for an app update the fork has for Aftermath games; "unsupported" stays.</summary>
+    [Fact]
+    public void An_unsupported_yet_verdict_is_ignored_for_a_game_the_fork_compiles_with_aftermath()
+    {
+        var list = GameVerdicts.Embedded;
+        var plain = Ue("5.6");
+        var aftermath = plain with { AftermathShaderDebug = true };
+        Assert.NotNull(list.Unsupported(G("steam:4078430"), plain));
+        Assert.Null(list.Unsupported(G("steam:4078430"), aftermath));
+        var hard = GameVerdicts.TryParse(Doc(Entry(GameVerdicts.UnsupportedVerdict, "steam:42", "other")))!;
+        Assert.NotNull(hard.Unsupported(G("steam:42"), aftermath));
+    }
+
     [Fact]
     public void Embedded_list_matches_by_store_id_only_and_shares_no_game_with_the_known_stutter_list()
     {

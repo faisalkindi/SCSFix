@@ -6,6 +6,9 @@ All notable changes to the SCSKiller app and command line. Versions follow [Sema
 
 ### Added (SCSFix, the fork)
 
+- Games that run NVIDIA Aftermath with shader debug info (STAR WARS: Galactic Racer) compile under the key the game looks up: `scsfix_warm`
+  loads the game's `GFSDK_Aftermath_Lib.x64.dll` and starts crash dumps and `DX12_Initialize` with shader debug info (0x8) as the game does. Measured: the
+  driver reuses a cache only with both; other flag bits and the callbacks change nothing. Upstream's "unsupported-yet" note is ignored for these games.
 - Renamed to SCSFix: its own data folder (`%LOCALAPPDATA%\SCSFix`), recorder file names (`scsfix.*`), exe, logo and
   About page. It installs beside SCSKiller. `tools/rebrand.py` redoes the rename after merging upstream.
 - No self-update: the update feed and its keys are SCSKiller's, so the fork never checks, downloads or applies one.

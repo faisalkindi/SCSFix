@@ -195,7 +195,8 @@ public enum WarmPriority { BelowNormal, Idle }
 public sealed record WarmOptions(int Threads, WarmPriority Priority, long StartAt = 0,
     int MemoryMB = 0,    // the staged warm process's private memory budget (scsfix_warm --memory-mb); 0 = none
     IReadOnlyCollection<string>? SkipKeys = null,   // record keys of items that crashed the GPU driver before: never replayed
-    int CarefulThreads = 0);   // a careful warm's passes (a pass file in the work folder): their threads; 0 = Threads
+    int CarefulThreads = 0,   // a careful warm's passes (a pass file in the work folder): their threads; 0 = Threads
+    string? Aftermath = null);   // the game's GFSDK_Aftermath_Lib.x64.dll when it runs NVIDIA Aftermath with shader debug info: the warm starts it the same way (scsfix_warm --aftermath)
 /// <param name="Failed">PSOs the driver rejected (only that: one naming a shader this install lacks is never replayed)</param>
 /// <param name="Skipped">PSOs of the plan / recording not replayed because a shader is not in this install (another game
 /// build, built at run time, a middleware DLL without it); not in <paramref name="Total"/>. Set by the app from
