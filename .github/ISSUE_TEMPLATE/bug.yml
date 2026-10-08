@@ -54,5 +54,5 @@ body:
     id: logs
     attributes:
       label: Output or error text
-      description: The error shown, or the output of `scsfix status "<game>"`. Remove anything personal (user names in paths).
+      description: The error shown, or the output of `scsfix status "<game>"`. If SCSFix closed on its own or didn't start, the end of `crash.log` in `%LOCALAPPDATA%\SCSFix`. Remove anything personal (user names in paths).
       render: text
