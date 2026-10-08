@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Games\known-stutter.json" LogicalName="SCSFix.Core.Games.known-stutter.json" />
+    <EmbeddedResource Include="Games\game-verdicts.json" LogicalName="SCSFix.Core.Games.game-verdicts.json" />
     <EmbeddedResource Include="Games\shader-mods.json" LogicalName="SCSFix.Core.Games.shader-mods.json" />
     <EmbeddedResource Include="Games\offline-eac.json" LogicalName="SCSFix.Core.Games.offline-eac.json" />
     <EmbeddedResource Include="Planning\confirmed-engines.json" LogicalName="SCSFix.Core.Planning.confirmed-engines.json" />

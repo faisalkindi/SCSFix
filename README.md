@@ -75,9 +75,9 @@ Measured with SCSFix's pipeline recorder. Your numbers will vary by game, GPU an
   mods (REFramework) hook too, and those hooks have crashed Dragon's Dogma 2.
 - **Play button** in the Library and on a game's page: starts the game through its store.
 - **Community shader hash database** for Patreon supporters: other players' recordings, so your games are covered
-  without recording them first. Sharing your own is opt-in and anonymous: shader hashes only.
-- **Never touches anti-cheat games** beyond reading their files: no launching, no injecting, no recorder. The one
-  exception is opt-in, per game and confirmed every time: an offline session without EasyAntiCheat for ELDEN RING and
+  without recording them first. Sharing yours is opt-in, anonymous and hash-only.
+- **Leaves anti-cheat games alone** beyond reading their files: no launching, no injecting, no recorder. The one
+  exception is opt-in per game and confirmed every time: an offline session without EasyAntiCheat for ELDEN RING and
   ARMORED CORE VI, at your own risk.
 
 ## Install
@@ -86,7 +86,7 @@ Measured with SCSFix's pipeline recorder. Your numbers will vary by game, GPU an
 |---|---|
 | OS | Windows 10 (version 2004) or 11, 64-bit |
 | GPU | NVIDIA or AMD |
-| Games | DirectX 12; DirectX 11 on NVIDIA |
+| Games | DirectX 12, DirectX 11 on NVIDIA |
 
 Intel GPUs aren't supported yet: there is no Intel GPU to test on.
 
@@ -118,7 +118,7 @@ ledger stays in `%LOCALAPPDATA%\SCSFix\armed`).
    it then checks that the compile reached the cache the game really uses, and with the recorder on, the game's page
    shows afterwards the frame times of your session and whether anything still compiled during it.
 
-If a game says it needs a recording, turn on **Record**, play it for a few minutes, then compile it.
+If a game needs a recording, turn on **Record**, play it for a few minutes, then compile it.
 
 <p align="center">
   <img src=".github/assets/queue.webp" width="49%" alt="The compile queue: one game compiling with pipelines per second, games waiting, one finished.">
@@ -146,10 +146,10 @@ deletes it as soon as anything in the install changes. The recorder decides when
 only if the file is there then, and a session already running keeps recording until the game exits. Uninstalling SCSFix
 removes these files, and the recording it wrote there, from every game folder.
 
-**Does it touch my drivers or their settings?** No. It compiles through DirectX, the way the game would.
+**Does it touch my drivers or their settings?** No. It compiles through DirectX, as the game would.
 
-**Do I need an account?** No. Everything the app does on your PC is free. Signing in with Patreon only adds the
-supporter features.
+**Do I need an account?** No. Everything the app does on your PC is free. Signing in with Patreon adds the supporter
+features.
 
 **A game says it is running and it isn't.** The note on the game names the processes that hold its exe name ("Running:
 Game.exe (process 1234)"). End that one in Task Manager (a leftover, a launcher's helper) and the compile continues.
@@ -171,8 +171,8 @@ cmake --build proxy/build --config Release
 dotnet build SCSFix.slnx -c Release
 ```
 
-`build/publish.ps1` builds the whole distribution into `dist\`. How it works in depth: [ARCHITECTURE.md](ARCHITECTURE.md).
-How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md). Changes: [CHANGELOG.md](CHANGELOG.md). Security issues:
+`build/publish.ps1` builds the distribution into `dist\`. Design: [ARCHITECTURE.md](ARCHITECTURE.md). Contributing:
+[CONTRIBUTING.md](CONTRIBUTING.md). Changes: [CHANGELOG.md](CHANGELOG.md). Security issues go through
 [SECURITY.md](SECURITY.md), never a public issue.
 
 ## Licence
