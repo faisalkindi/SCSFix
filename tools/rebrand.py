@@ -31,6 +31,7 @@ PROTECT = [
     r"contact@scskiller\.com",
     r"BlueHeisenberg/SCSKiller",
     r"scskiller-feed-v1",                             # the signature domain string of upstream's feed
+    r"scskiller-content-v1",                          # ... and of its server content (verdicts, plan rules, news): renamed, none verifies
     r"Based on SCSKiller by BlueHeisenberg",           # the About page's credit
 ]
 PROT = re.compile("|".join(f"(?:{p})" for p in PROTECT))

@@ -8,7 +8,7 @@ namespace SCSFix.Core.App;
 
 /// <summary>A content file that changes what gets compiled (plan-rules.json, game-verdicts.json) or speaks for SCSFix (news.json) travels signed, since the edge serves only
 /// .json and can't be trusted: {"v":1,"name","signed_at","sha256","kid","sig","body"}, body the document as a string,
-/// sha256 the hex SHA-256 of its UTF-8 bytes, sig Ed25519 over "scsfix-content-v1\n" + name + "\n" + signed_at + "\n"
+/// sha256 the hex SHA-256 of its UTF-8 bytes, sig Ed25519 over "scskiller-content-v1\n" + name + "\n" + signed_at + "\n"
 /// + sha256. Signed offline (tools/release-sign sign-content) with the rules keys, never the release keys. A body is
 /// used only when the signature verifies with a pinned key, the name is the one asked for, the body is valid, and it
 /// isn't older than the newest one accepted for that name on that channel.</summary>
@@ -32,7 +32,7 @@ public sealed class ContentTrust(AppStore store, IReadOnlyDictionary<string, str
     public string? Rejected { get; private set; }
 
     public static byte[] Message(string name, string signedAt, string sha256) =>
-        Encoding.UTF8.GetBytes($"scsfix-content-v1\n{name}\n{signedAt}\n{sha256}");
+        Encoding.UTF8.GetBytes($"scskiller-content-v1\n{name}\n{signedAt}\n{sha256}");
 
     /// <summary>The envelope of <paramref name="body"/> (tools/release-sign; tests). <paramref name="seed"/>: the 32-byte private key.</summary>
     public static string Sign(ReadOnlySpan<byte> seed, string kid, string name, string body, DateTimeOffset signedAt)
