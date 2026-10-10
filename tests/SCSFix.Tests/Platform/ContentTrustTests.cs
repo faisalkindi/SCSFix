@@ -24,6 +24,16 @@ public class ContentTrustTests : IDisposable
         Assert.Contains(why, t.Rejected);
     }
 
+    /// <summary>FORK: the signed message is upstream's byte for byte. Its server signs "scskiller-content-v1"; the rebrand once
+    /// renamed it, and then no file from that server verified (round-trip tests sign and check with the same string, so only a
+    /// pinned literal catches it).</summary>
+    [Fact]
+    public void Signed_message_keeps_upstreams_domain_string()
+    {
+        var m = System.Text.Encoding.UTF8.GetString(ContentTrust.Message("game-verdicts", "2026-10-10T00:00:00Z", "ab"));
+        Assert.Equal("scskiller" + "-content-v1\ngame-verdicts\n2026-10-10T00:00:00Z\nab", m);   // split: a rebrand mustn't rewrite the test too
+    }
+
     [Fact]
     public void GoodEnvelope_WithEitherPinnedKey_GivesItsBody()
     {
