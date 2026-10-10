@@ -280,8 +280,6 @@ public sealed record GameState(
     bool OfflineRunning = false,       // a session SCSFix started runs, or its files aren't out of the game folder yet
     string? NoStutter = null,          // why it has no shader stutter (Games.GameVerdicts); null = not listed, or KnownStutter is
     bool CompileUnreached = false,     // NVIDIA: the warm's pipelines didn't serve the game (ScsFix.IsUnreached): never queued but by hand
-    bool CacheFileFull = false,        // NVIDIA: a cache file of the game's is at 4 GiB and nearly full (NvidiaAppCache.NearlyFull)
-    long? CacheInUse = null,           // of CacheOnDisk, the bytes the driver has filled (NVIDIA pre-sizes its files); null = not known
     bool NotPlanned = false,           // Unsupported by an "unsupported" verdict, or for a recording its anti-cheat blocks: not planned, unlike "unsupported-yet"
     bool NewOnly = false,              // Stale only for pipelines its last warm didn't compile (ScsFix.StaleReason past WarmChanged): the rest still serve
     bool Records11 = false);           // FORK: a record-only game that may run on DirectX 11, on a GPU whose D3D11 cache is warmed: its recorder is also d3d11.dll (ScsFix.Proxy11)
